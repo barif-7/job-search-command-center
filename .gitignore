@@ -1,7 +1,5 @@
 # Database
-data/
 *.sqlite
-*.db
 
 # Environment & secrets
 .env
@@ -35,5 +33,4 @@ Thumbs.db
 *.swp
 *.swo
 
-# Claude Code session data (not project source)
-.claude/
+# Claude Code session data
