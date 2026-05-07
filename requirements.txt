@@ -1,0 +1,7 @@
+streamlit
+httpx
+pandas
+anthropic
+python-dotenv
+notion-client
+pytest

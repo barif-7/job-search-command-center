@@ -1,0 +1,1 @@
+Notes for future work on Notion sync.

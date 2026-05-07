@@ -1,0 +1,39 @@
+# Database
+data/
+*.sqlite
+*.db
+
+# Environment & secrets
+.env
+*.env.local
+*.env.*.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+venv/
+.venv/
+env/
+.python-version
+*.egg-info/
+dist/
+build/
+
+# Test cache
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code session data (not project source)
+.claude/
