@@ -6,8 +6,8 @@ from pathlib import Path
 
 _HERE = Path(__file__).parent
 
-# Pull company lists from the workspace-level careerBoards.py
-sys.path.insert(0, str(_HERE.parent))
+# Pull company lists from careerBoards.py (project-local copy)
+sys.path.insert(0, str(_HERE))
 try:
     from careerBoards import GREENHOUSE, LEVER, ASHBY
 except ImportError:
