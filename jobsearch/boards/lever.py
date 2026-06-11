@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from config import LOCATION_KEYWORDS, ROLE_KEYWORDS
+from jobsearch.boards import BoardFetchResult
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,7 @@ COURTESY_DELAY = 0.1
 
 
 class LeverFetcher:
-    async def fetch(self, client, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def fetch(self, client, config: Dict[str, Any]) -> BoardFetchResult:
         companies: Dict[str, str] = config.get("companies", {})
         api_base: str = config.get("api_base", "https://api.lever.co/v0/postings")
 
@@ -22,18 +23,24 @@ class LeverFetcher:
             for slug, name in companies.items()
         ]
         batches = await asyncio.gather(*tasks)
-        return [job for batch in batches for job in batch]
+        result = BoardFetchResult(companies_total=len(companies))
+        for batch in batches:
+            if batch is None:
+                result.companies_failed += 1
+            else:
+                result.jobs.extend(batch)
+        return result
 
 
 async def _fetch_one(
     client, sem: asyncio.Semaphore, api_base: str, slug: str, name: str
-) -> List[Dict[str, Any]]:
+) -> List[Dict[str, Any]] | None:
     async with sem:
         try:
             r = await client.get(f"{api_base}/{slug}?mode=json&limit=250")
             if r.status_code != 200:
                 logger.warning("[lever] ✗ %s (%s) — HTTP %s", name, slug, r.status_code)
-                return []
+                return None
             postings = r.json()
             if not isinstance(postings, list):
                 postings = postings.get("postings", [])
@@ -62,7 +69,7 @@ async def _fetch_one(
             return results
         except Exception as e:
             logger.error("[lever] ✗ %s (%s) — %s", name, slug, e)
-            return []
+            return None
         finally:
             await asyncio.sleep(COURTESY_DELAY)
 

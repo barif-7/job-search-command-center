@@ -1861,6 +1861,10 @@ with tab_dashboard:
                     if result.stdout:
                         with st.expander("Fetch output"):
                             st.code(result.stdout)
+                elif result.returncode == 2:
+                    st.warning("Fetch completed, but some boards failed — results are incomplete.")
+                    with st.expander("Fetch output"):
+                        st.code(result.stdout or result.stderr)
                 else:
                     st.error("Fetch failed.")
                     with st.expander("Error output"):

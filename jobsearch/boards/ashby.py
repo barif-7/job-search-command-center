@@ -5,21 +5,24 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from config import LOCATION_KEYWORDS, ROLE_KEYWORDS
+from jobsearch.boards import BoardFetchResult
 
 logger = logging.getLogger(__name__)
 
 
 class AshbyFetcher:
-    async def fetch(self, client, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def fetch(self, client, config: Dict[str, Any]) -> BoardFetchResult:
         companies: Dict[str, str] = config.get("companies", {})
         api_base: str = config.get("api_base", "https://jobs.ashbyhq.com")
-        results = []
+        result = BoardFetchResult(companies_total=len(companies))
+        results = result.jobs
 
         for slug, name in companies.items():
             try:
                 r = await client.get(f"{api_base}/{slug}")
                 if r.status_code != 200:
                     logger.warning("[ashby] ✗ %s (%s) — HTTP %s", name, slug, r.status_code)
+                    result.companies_failed += 1
                     await asyncio.sleep(0.3)
                     continue
 
@@ -28,6 +31,7 @@ class AshbyFetcher:
                 pos = html.find(marker)
                 if pos == -1:
                     logger.warning("[ashby] ✗ %s (%s) — jobPostings not found in HTML", name, slug)
+                    result.companies_failed += 1
                     await asyncio.sleep(0.3)
                     continue
 
@@ -39,6 +43,7 @@ class AshbyFetcher:
                     jobs, _ = json.JSONDecoder().raw_decode(html, array_start)
                 except json.JSONDecodeError as e:
                     logger.error("[ashby] ✗ %s (%s) — JSON parse error: %s", name, slug, e)
+                    result.companies_failed += 1
                     await asyncio.sleep(0.3)
                     continue
 
@@ -75,9 +80,10 @@ class AshbyFetcher:
                 logger.info("[ashby] ✓ %s: %d match(es) of %d", name, count, len(jobs))
             except Exception as e:
                 logger.error("[ashby] ✗ %s (%s) — %s", name, slug, e)
+                result.companies_failed += 1
             await asyncio.sleep(0.3)
 
-        return results
+        return result
 
 
 def _matches_role(title: str) -> bool:
