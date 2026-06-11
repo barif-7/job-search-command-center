@@ -248,6 +248,22 @@ class JobStore:
             self.conn.rollback()
             return False
 
+    def set_notion_page_id(self, url: str, page_id: str) -> bool:
+        """Persists the Notion page id for a job without touching its status."""
+        self._ensure_connected()
+        now = datetime.now(timezone.utc)
+        try:
+            self.cursor.execute(
+                "UPDATE jobs SET notion_page_id = ?, updated_at = ? WHERE url = ?",
+                (page_id, now.isoformat(), url),
+            )
+            self.conn.commit()
+            return self.cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"Error setting notion_page_id for {url}: {e}")
+            self.conn.rollback()
+            return False
+
     def update_job_details(self, url: str, priority: Optional[int] = None, fit_score: Optional[float] = None, fit_summary: Optional[str] = None, notes: Optional[str] = None) -> bool:
         """Updates user-managed details of a job."""
         self._ensure_connected()
