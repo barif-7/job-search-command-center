@@ -10,14 +10,11 @@ from pathlib import Path
 # Allow running from the scripts/ directory or the project root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from dotenv import load_dotenv
-load_dotenv()
-
 from jobsearch.store import JobStore
-from jobsearch.notion_sync import upsert_job_to_notion, ENABLE_NOTION_SYNC
+from jobsearch.notion_sync import upsert_job_to_notion, notion_sync_enabled
 
 def main():
-    if not ENABLE_NOTION_SYNC:
+    if not notion_sync_enabled():
         print("Notion sync is disabled. Set ENABLE_NOTION_SYNC=true in .env to enable it.")
         return
 

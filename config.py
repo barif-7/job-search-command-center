@@ -15,19 +15,8 @@ except ImportError:
     LEVER: dict = {}
     ASHBY: dict = {}
 
-# ── Database ───────────────────────────────────────────────────────────────
-
-DATABASE_PATH = str(_HERE / "data" / "jobs.db")
-
-# ── Markdown export ────────────────────────────────────────────────────────
-
-MARKDOWN_EXPORT_PATH = str(_HERE.parent / "job-search-results.md")
-
-# ── Notion (disabled by default) ───────────────────────────────────────────
-
-NOTION_API_KEY = ""
-NOTION_JOBS_DATABASE_ID = ""
-ENABLE_NOTION_SYNC = False
+# Paths, credentials, and feature toggles live in jobsearch.settings
+# (env + .env). This module holds only static domain configuration.
 
 # ── HTTP ───────────────────────────────────────────────────────────────────
 
@@ -120,9 +109,3 @@ APPLICATION_STATUSES = [
     "BLOCKED",
     "SKIPPED",
 ]
-
-APPLY_INPUT_DIR = str(_HERE / "data" / "apply")
-
-# ── AI fit scoring (optional) ──────────────────────────────────────────────
-
-OPENAI_API_KEY = ""

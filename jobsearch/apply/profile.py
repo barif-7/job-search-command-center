@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config import APPLY_INPUT_DIR
+from jobsearch.settings import get_settings
 
-APPLY_DIR = Path(APPLY_INPUT_DIR)
+APPLY_DIR = Path(get_settings().apply_input_dir)
 PROFILE_PATH = APPLY_DIR / "candidate_profile.json"
 RESUME_PDF_PATH = APPLY_DIR / "resume_master.pdf"
 RESUME_TXT_PATH = APPLY_DIR / "resume_master.txt"

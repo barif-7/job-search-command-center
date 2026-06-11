@@ -1,5 +1,4 @@
 from __future__ import annotations
-import os
 from typing import Optional
 
 try:
@@ -8,32 +7,28 @@ except Exception:
     Client = None  # type: ignore
 
 from .models import Job
+from .settings import get_settings
 
-NOTION_API_KEY = os.environ.get("NOTION_API_KEY", "")
-NOTION_JOBS_DATABASE_ID = os.environ.get("NOTION_JOBS_DATABASE_ID", "")
-ENABLE_NOTION_SYNC = os.environ.get("ENABLE_NOTION_SYNC", "false").lower() in ("1", "true", "yes")
+
+def notion_sync_enabled() -> bool:
+    return get_settings().notion_configured
 
 
 def _notion_client() -> Optional[object]:
-    if not ENABLE_NOTION_SYNC:
-        return None
-    if not NOTION_API_KEY:
+    settings = get_settings()
+    if not settings.notion_configured:
         return None
     if Client is None:
         return None
-    return Client(auth=NOTION_API_KEY)
+    return Client(auth=settings.notion_api_key)
 
 
 def upsert_job_to_notion(job: Job) -> Optional[str]:
     """Upsert a Job into Notion database. Returns notion page_id if created/updated, else None."""
-    if not ENABLE_NOTION_SYNC:
-        return None
-    if not NOTION_API_KEY or not NOTION_JOBS_DATABASE_ID:
-        return None
-
     client = _notion_client()
     if client is None:
         return None
+    NOTION_JOBS_DATABASE_ID = get_settings().notion_jobs_database_id
 
     # Try to find existing page by URL
     try:

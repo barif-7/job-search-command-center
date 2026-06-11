@@ -5,15 +5,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from config import APPLY_INPUT_DIR
 from jobsearch.apply.ats import classify_blocker, detect_ats_provider, resolve_application_url
 from jobsearch.apply.field_matching import collect_visible_fields, fill_boolean_answers, fill_text_if_possible
 from jobsearch.apply.profile import RESUME_PDF_PATH, load_candidate_profile
 from jobsearch.apply.results import ApplyResult
 from jobsearch.models import Job
+from jobsearch.settings import get_settings
 from jobsearch.store import JobStore
 
-RESULTS_DIR = Path(APPLY_INPUT_DIR) / "results"
+RESULTS_DIR = Path(get_settings().apply_input_dir) / "results"
 
 
 def build_apply_queue(

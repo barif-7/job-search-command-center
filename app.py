@@ -28,9 +28,14 @@ _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 sys.path.insert(0, str(_HERE.parent))  # for careerBoards
 
-from config import APPLICATION_STATUSES, DATABASE_PATH, JOB_STATUSES, MARKDOWN_EXPORT_PATH
+from config import APPLICATION_STATUSES, JOB_STATUSES
 from jobsearch.apply.profile import profile_readiness
+from jobsearch.settings import get_settings
 from jobsearch.store import JobStore
+
+_SETTINGS = get_settings()
+DATABASE_PATH = _SETTINGS.database_path
+MARKDOWN_EXPORT_PATH = _SETTINGS.markdown_export_path
 
 # ── Company → domain mapping (for logo providers) ─────────────────────────
 
@@ -127,7 +132,7 @@ BOARD_HOSTS = {
 
 DOMAIN_GUESSES = [".com", ".ai", ".co", ".app", ".dev", ".io", ".so"]
 
-_LOGO_DEV_TOKEN = os.environ.get("LOGO_DEV_TOKEN", "")
+_LOGO_DEV_TOKEN = _SETTINGS.logo_dev_token
 
 # ── City cover images for immersive view ──────────────────────────────────
 # Each entry has an Unsplash search query and a CSS gradient fallback so cards
@@ -1757,7 +1762,7 @@ def stream_ai_summary(content: str):
         yield "❌ `anthropic` package not installed. Run: `pip install anthropic`"
         return
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = _SETTINGS.anthropic_api_key
     if not api_key:
         yield "❌ `ANTHROPIC_API_KEY` environment variable not set."
         return
@@ -2394,7 +2399,7 @@ with tab_summary:
 
     # ── Generate button ───────────────────────────────────────────────────
 
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY", ""))
+    has_key = bool(_SETTINGS.anthropic_api_key)
 
     col_btn, col_note = st.columns([1, 4])
     with col_btn:

@@ -4,14 +4,14 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
 from .models import Job
+from .settings import get_settings
 from .utils import clean_text
-from config import DATABASE_PATH
 
 logger = logging.getLogger(__name__)
 
 class JobStore:
-    def __init__(self, db_path: str = DATABASE_PATH):
-        self.db_path = db_path
+    def __init__(self, db_path: Optional[str] = None):
+        self.db_path = db_path if db_path is not None else get_settings().database_path
         self.conn = None
         self.cursor = None
         self._ensure_connected()

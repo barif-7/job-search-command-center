@@ -3,8 +3,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import MARKDOWN_EXPORT_PATH
+from jobsearch.settings import get_settings
 from jobsearch.store import JobStore
+
+MARKDOWN_EXPORT_PATH = get_settings().markdown_export_path
 
 store = JobStore()
 jobs = store.get_all_jobs()
