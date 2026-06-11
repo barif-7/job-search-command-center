@@ -46,6 +46,15 @@ class JobStore:
             fit_summary TEXT,
             notes TEXT,
             notion_page_id TEXT,
+            application_status TEXT DEFAULT 'NOT_STARTED',
+            application_url TEXT,
+            ats_provider TEXT,
+            fields_completed TEXT,
+            resume_uploaded INTEGER,
+            blockers TEXT,
+            last_apply_attempt_at TEXT,
+            apply_notes TEXT,
+            human_required_reason TEXT,
             created_at TEXT,
             updated_at TEXT
         );
@@ -53,9 +62,29 @@ class JobStore:
         try:
             self._ensure_connected()
             self.cursor.execute(query)
+            self._migrate_jobs_table()
             self.conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Error creating tables: {e}")
+
+    def _migrate_jobs_table(self):
+        """Adds newer columns to existing SQLite databases in place."""
+        self.cursor.execute("PRAGMA table_info(jobs)")
+        existing = {row["name"] for row in self.cursor.fetchall()}
+        columns = {
+            "application_status": "TEXT DEFAULT 'NOT_STARTED'",
+            "application_url": "TEXT",
+            "ats_provider": "TEXT",
+            "fields_completed": "TEXT",
+            "resume_uploaded": "INTEGER",
+            "blockers": "TEXT",
+            "last_apply_attempt_at": "TEXT",
+            "apply_notes": "TEXT",
+            "human_required_reason": "TEXT",
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                self.cursor.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
 
     def job_to_db_row(self, job: Job) -> Dict[str, Any]:
         """Converts a Job object to a dictionary suitable for database insertion/update."""
@@ -76,6 +105,15 @@ class JobStore:
             "fit_summary": clean_text(job.fit_summary) if job.fit_summary else None,
             "notes": clean_text(job.notes) if job.notes else None,
             "notion_page_id": job.notion_page_id,
+            "application_status": job.application_status or "NOT_STARTED",
+            "application_url": job.application_url,
+            "ats_provider": job.ats_provider,
+            "fields_completed": clean_text(job.fields_completed) if job.fields_completed else None,
+            "resume_uploaded": int(bool(job.resume_uploaded)) if job.resume_uploaded is not None else None,
+            "blockers": clean_text(job.blockers) if job.blockers else None,
+            "last_apply_attempt_at": job.last_apply_attempt_at.isoformat() if job.last_apply_attempt_at else None,
+            "apply_notes": clean_text(job.apply_notes) if job.apply_notes else None,
+            "human_required_reason": clean_text(job.human_required_reason) if job.human_required_reason else None,
             "created_at": job.created_at.isoformat() if job.created_at else None,
             "updated_at": job.updated_at.isoformat() if job.updated_at else None,
         }
@@ -115,7 +153,10 @@ class JobStore:
             
             # Fields to preserve from existing job if they are not None or are user-managed
             fields_to_preserve = [
-                'status', 'priority', 'fit_score', 'fit_summary', 'notes', 'notion_page_id', 'created_at'
+                'status', 'priority', 'fit_score', 'fit_summary', 'notes', 'notion_page_id',
+                'application_status', 'application_url', 'ats_provider', 'fields_completed',
+                'resume_uploaded', 'blockers', 'last_apply_attempt_at', 'apply_notes',
+                'human_required_reason', 'created_at'
             ]
             
             for field in fields_to_preserve:
@@ -238,7 +279,7 @@ class JobStore:
 
         query = f"UPDATE jobs SET {', '.join(set_clauses)} WHERE url = ?"
         params.append(url)
-        
+
         try:
             self.cursor.execute(query, tuple(params))
             self.conn.commit()
@@ -248,10 +289,61 @@ class JobStore:
             self.conn.rollback()
             return False
 
+    def update_application_state(
+        self,
+        url: str,
+        application_status: Optional[str] = None,
+        application_url: Optional[str] = None,
+        ats_provider: Optional[str] = None,
+        fields_completed: Optional[str] = None,
+        resume_uploaded: Optional[bool] = None,
+        blockers: Optional[str] = None,
+        apply_notes: Optional[str] = None,
+        human_required_reason: Optional[str] = None,
+        touch_attempt: bool = True,
+    ) -> bool:
+        """Updates auto-apply metadata for a job."""
+        self._ensure_connected()
+        now = datetime.now(timezone.utc)
+        set_clauses = ["updated_at = ?"]
+        params = [now.isoformat()]
+
+        updates = {
+            "application_status": application_status,
+            "application_url": application_url,
+            "ats_provider": ats_provider,
+            "fields_completed": clean_text(fields_completed) if fields_completed else fields_completed,
+            "resume_uploaded": int(bool(resume_uploaded)) if resume_uploaded is not None else None,
+            "blockers": clean_text(blockers) if blockers else blockers,
+            "apply_notes": clean_text(apply_notes) if apply_notes else apply_notes,
+            "human_required_reason": clean_text(human_required_reason) if human_required_reason else human_required_reason,
+        }
+        for column, value in updates.items():
+            if value is not None:
+                set_clauses.append(f"{column} = ?")
+                params.append(value)
+
+        if touch_attempt:
+            set_clauses.append("last_apply_attempt_at = ?")
+            params.append(now.isoformat())
+
+        if len(set_clauses) == 1:
+            return False
+
+        query = f"UPDATE jobs SET {', '.join(set_clauses)} WHERE url = ?"
+        params.append(url)
+        try:
+            self.cursor.execute(query, tuple(params))
+            self.conn.commit()
+            return self.cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"Error updating application state for {url}: {e}")
+            self.conn.rollback()
+            return False
+
     def close(self):
         """Closes the database connection."""
         if self.conn:
             self.conn.close()
             self.conn = None
             self.cursor = None
-

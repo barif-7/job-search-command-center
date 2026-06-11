@@ -5,3 +5,4 @@ anthropic
 python-dotenv
 notion-client
 pytest
+playwright

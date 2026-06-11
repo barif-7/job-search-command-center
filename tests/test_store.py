@@ -14,5 +14,25 @@ class TestStore(unittest.TestCase):
         self.assertTrue(updated)
         store.close()
 
+    def test_update_application_state(self):
+        store = JobStore(db_path=':memory:')
+        job = Job(company='Acme', title='Test Dev', location='Remote', url='https://example.com/job2')
+        store.insert_or_update_job(job)
+        updated = store.update_application_state(
+            url='https://example.com/job2',
+            application_status='READY_FOR_REVIEW',
+            application_url='https://example.com/job2/apply',
+            ats_provider='Unknown',
+            fields_completed='email, phone',
+            resume_uploaded=True,
+            human_required_reason='final submit approval',
+        )
+        self.assertTrue(updated)
+        saved = store.get_job_by_url('https://example.com/job2')
+        self.assertEqual(saved.application_status, 'READY_FOR_REVIEW')
+        self.assertEqual(saved.application_url, 'https://example.com/job2/apply')
+        self.assertTrue(saved.resume_uploaded)
+        store.close()
+
 if __name__ == '__main__':
     unittest.main()

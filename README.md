@@ -63,12 +63,13 @@ All variables are optional. The dashboard runs without any of them.
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. The dashboard has three tabs:
+Opens at `http://localhost:8501`. The dashboard has four tabs:
 
 | Tab | What it does |
 |-----|-------------|
 | **Dashboard** | Metrics, top opportunities, editable job tracker table |
 | **Opportunity Feed** | Card-based feed with filters, search, and 3 view modes |
+| **Auto-Apply** | Queue jobs, safely fill known application fields, upload resumes, and stop before final submit |
 | **AI Summary** | Claude-powered briefing of your full job search document |
 
 ---
@@ -91,6 +92,44 @@ This pulls from all configured Greenhouse, Lever, and Ashby boards defined in `c
 |--------|-------------|
 | `scripts/export_markdown.py` | Export tracked jobs to `job-search-results.md` |
 | `scripts/sync_notion.py` | Sync jobs to a Notion database (requires `.env` config) |
+| `scripts/run_auto_apply.py` | Preview or run safe application form filling without final submission |
+
+---
+
+## Auto-Apply
+
+Auto-Apply is intentionally review-first. It can open application forms, fill fields from local profile data, upload `resume_master.pdf` when present, detect blockers, and write application state back to SQLite. It does **not** click final submit.
+
+Private application inputs live under ignored local data:
+
+```text
+data/apply/
+├── candidate_profile.json
+├── resume_master.pdf
+├── resume_master.txt
+├── qa.json
+└── constraints.json
+```
+
+Preview a queue:
+
+```bash
+python scripts/run_auto_apply.py --status Interested --min-priority 4 --limit 5 --dry-run
+```
+
+Run a small headed batch:
+
+```bash
+python scripts/run_auto_apply.py --status Interested --min-priority 4 --limit 3
+```
+
+Safety stops:
+
+- CAPTCHA / anti-bot checks
+- OTP or verification-code gates
+- forced account creation
+- unknown required legal questions
+- final submit without explicit human approval
 
 ---
 

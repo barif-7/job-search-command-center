@@ -5,6 +5,8 @@ Run from the job-search-command-center/ directory:
     streamlit run app.py
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import re
@@ -26,7 +28,8 @@ _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 sys.path.insert(0, str(_HERE.parent))  # for careerBoards
 
-from config import DATABASE_PATH, JOB_STATUSES, MARKDOWN_EXPORT_PATH
+from config import APPLICATION_STATUSES, DATABASE_PATH, JOB_STATUSES, MARKDOWN_EXPORT_PATH
+from jobsearch.apply.profile import profile_readiness
 from jobsearch.store import JobStore
 
 # ── Company → domain mapping (for logo providers) ─────────────────────────
@@ -878,10 +881,14 @@ def load_jobs(db_mtime: float) -> pd.DataFrame:
         return pd.DataFrame(columns=[
             "id", "company", "title", "location", "board",
             "date_found", "status", "priority", "notes", "url",
+            "application_status", "application_url", "ats_provider",
+            "last_apply_attempt_at", "blockers", "human_required_reason",
         ])
     rows = [j.to_dict() for j in jobs]
     df = pd.DataFrame(rows)
     df["date_found"] = pd.to_datetime(df["date_found"], utc=True, errors="coerce")
+    if "last_apply_attempt_at" in df:
+        df["last_apply_attempt_at"] = pd.to_datetime(df["last_apply_attempt_at"], utc=True, errors="coerce")
     return df
 
 
@@ -890,7 +897,10 @@ def _db_mtime() -> float:
     return p.stat().st_mtime if p.exists() else 0.0
 
 
-DISPLAY_COLS = ["company", "title", "location", "board", "date_found", "status", "priority", "notes", "url"]
+DISPLAY_COLS = [
+    "company", "title", "location", "board", "date_found", "status", "priority",
+    "application_status", "blockers", "human_required_reason", "notes", "url",
+]
 
 # ── Session state ──────────────────────────────────────────────────────────
 
@@ -950,7 +960,9 @@ def parse_md_stats(content: str) -> dict:
 
 # ── Markdown job feed parser ───────────────────────────────────────────────
 
-def _parse_job_entry(heading: str, body: str, section: str) -> dict | None:
+from typing import Optional
+
+def _parse_job_entry(heading: str, body: str, section: str) -> Optional[dict]:
     """Parse a single ### / #### job entry into a structured dict."""
     at_idx = heading.rfind("@")
     if at_idx == -1:
@@ -1035,6 +1047,53 @@ def _parse_job_entry(heading: str, body: str, section: str) -> dict | None:
     }
 
 
+def _parse_exported_job_bullet(line: str, next_line: str, section: str) -> Optional[dict]:
+    """Parse the bullet format produced by the dashboard markdown export."""
+    match = re.match(
+        r"^-\s+(?:\*\*)?\[(?P<company>[^\]]+)\](?:\*\*)?\s+"
+        r"(?P<title>.+?)\s+(?:—|-)\s+(?P<location>.*?)\s+"
+        r"\((?P<meta>[^)]*)\)\s*$",
+        line,
+    )
+    if not match:
+        return None
+
+    company = match.group("company").strip()
+    title = match.group("title").strip()
+    location = match.group("location").strip()
+    meta = [part.strip() for part in match.group("meta").split(",")]
+    board = meta[0] if meta else ""
+
+    url_m = re.search(r"https?://\S+", next_line or "")
+    url = url_m.group(0).rstrip(".,)") if url_m else ""
+
+    section_l = section.lower()
+    title_l = title.lower()
+    if any(term in title_l for term in ("ai", "machine learning", "ml engineer", "forward deployed")):
+        job_type = "ai"
+    elif any(term in title_l for term in ("ios", "mobile", "swift", "react native")):
+        job_type = "ios"
+    elif "new" in section_l:
+        job_type = "new"
+    else:
+        job_type = "new"
+
+    return {
+        "company": company,
+        "title": title,
+        "url": url,
+        "comp": "",
+        "location": location,
+        "board": board,
+        "fit": "",
+        "concerns": "",
+        "priority": 0,
+        "status": section or "New",
+        "type": job_type,
+        "section": section,
+    }
+
+
 @st.cache_data(show_spinner=False)
 def parse_md_jobs(content: str) -> list[dict]:
     """
@@ -1047,6 +1106,17 @@ def parse_md_jobs(content: str) -> list[dict]:
     i = 0
 
     while i < len(lines):
+        if lines[i].startswith("- "):
+            job = _parse_exported_job_bullet(
+                lines[i],
+                lines[i + 1] if i + 1 < len(lines) else "",
+                current_section,
+            )
+            if job:
+                jobs.append(job)
+            i += 1
+            continue
+
         h = re.match(r"^(#{2,4})\s+(.*)", lines[i])
         if not h:
             i += 1
@@ -1731,7 +1801,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab_dashboard, tab_feed, tab_summary = st.tabs(["Dashboard", "Opportunity Feed", "AI Summary"])
+tab_dashboard, tab_feed, tab_apply, tab_summary = st.tabs(["Dashboard", "Opportunity Feed", "Auto-Apply", "AI Summary"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab 1 — Dashboard
@@ -1743,7 +1813,7 @@ with tab_dashboard:
     total = len(df)
     new_count        = int((df["status"] == "New").sum())        if total else 0
     applied_count    = int((df["status"] == "Applied").sum())    if total else 0
-    interviewing_count = int((df["status"] == "Interviewing").sum()) if total else 0
+    review_count = int((df["application_status"] == "READY_FOR_REVIEW").sum()) if total and "application_status" in df else 0
     latest_found = (
         df["date_found"].dropna().max().tz_convert(None).strftime("%b %d, %Y")
         if total and df["date_found"].notna().any()
@@ -1758,7 +1828,7 @@ with tab_dashboard:
     with c3:
         st.markdown(metric_card_html("Applied", str(applied_count), "Roles already moved into action"), unsafe_allow_html=True)
     with c4:
-        st.markdown(metric_card_html("Interviewing", str(interviewing_count), "Active conversations in progress"), unsafe_allow_html=True)
+        st.markdown(metric_card_html("Apply review", str(review_count), "Auto-filled roles waiting for human review"), unsafe_allow_html=True)
 
     left_lane, right_lane = st.columns([1.3, 1], gap="large")
     with left_lane:
@@ -1887,6 +1957,9 @@ with tab_dashboard:
                 "date_found": st.column_config.DatetimeColumn("Found", disabled=True, format="YYYY-MM-DD"),
                 "status":     st.column_config.SelectboxColumn("Status",   options=JOB_STATUSES, required=True),
                 "priority":   st.column_config.NumberColumn("Priority", min_value=1, max_value=5, step=1),
+                "application_status": st.column_config.SelectboxColumn("Application", options=APPLICATION_STATUSES, disabled=True),
+                "blockers":    st.column_config.TextColumn("Blockers", disabled=True),
+                "human_required_reason": st.column_config.TextColumn("Human Gate", disabled=True),
                 "notes":      st.column_config.TextColumn("Notes"),
                 "url":        st.column_config.LinkColumn("URL", disabled=True),
             },
@@ -2128,7 +2201,149 @@ with tab_feed:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Tab 3 — AI Summary
+# Tab 3 — Auto-Apply
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_apply:
+    df = load_jobs(_db_mtime())
+    readiness = profile_readiness()
+
+    st.markdown(
+        surface_header_html(
+            "Safe auto-apply",
+            "Build a queue from tracked jobs, open the application forms, fill only known safe fields, upload a resume when available, and stop before final submit.",
+        ),
+        unsafe_allow_html=True,
+    )
+
+    r1, r2, r3, r4 = st.columns(4)
+    with r1:
+        st.markdown(metric_card_html("Profile", "Ready" if readiness["ready_for_fill"] else "Missing", "Required autofill fields"), unsafe_allow_html=True)
+    with r2:
+        st.markdown(metric_card_html("Resume PDF", "Found" if readiness["resume_pdf_exists"] else "Missing", "Needed for upload fields"), unsafe_allow_html=True)
+    with r3:
+        blocked_count = int((df["application_status"] == "BLOCKED").sum()) if not df.empty and "application_status" in df else 0
+        st.markdown(metric_card_html("Blocked", str(blocked_count), "Captcha, OTP, account gates, or errors"), unsafe_allow_html=True)
+    with r4:
+        submitted_count = int((df["application_status"] == "SUBMITTED").sum()) if not df.empty and "application_status" in df else 0
+        st.markdown(metric_card_html("Submitted", str(submitted_count), "Manually confirmed submissions"), unsafe_allow_html=True)
+
+    if readiness["missing_profile_fields"]:
+        st.warning("Missing profile fields: " + ", ".join(readiness["missing_profile_fields"]))
+    if not readiness["resume_pdf_exists"]:
+        st.info(f"Add `resume_master.pdf` under `{readiness['apply_dir']}` before expecting resume upload to work.")
+
+    st.markdown(
+        surface_header_html(
+            "Queue builder",
+            "Use small batches. Dry run first, then open and fill only when the queue looks right.",
+        ),
+        unsafe_allow_html=True,
+    )
+
+    q1, q2, q3, q4 = st.columns([1, 1, 1, 1])
+    with q1:
+        apply_status_filter = st.selectbox("Tracker status", ["Any", "New", "Saved", "Interested", "Applied"], index=0)
+    with q2:
+        apply_min_priority = st.selectbox("Min priority", ["Any", "1", "2", "3", "4", "5"], index=0)
+    with q3:
+        apply_limit = st.number_input("Batch limit", min_value=1, max_value=20, value=3, step=1)
+    with q4:
+        specific_job_id = st.number_input("Job ID", min_value=0, value=0, step=1, help="0 means use queue filters.")
+
+    cli_args = [
+        sys.executable,
+        str(_HERE / "scripts" / "run_auto_apply.py"),
+        "--limit",
+        str(int(apply_limit)),
+    ]
+    if apply_status_filter != "Any":
+        cli_args.extend(["--status", apply_status_filter])
+    if apply_min_priority != "Any":
+        cli_args.extend(["--min-priority", apply_min_priority])
+    if specific_job_id:
+        cli_args.extend(["--job-id", str(int(specific_job_id))])
+
+    b1, b2, _ = st.columns([1, 1, 2])
+    with b1:
+        if st.button("Preview Queue", type="primary", width="stretch"):
+            result = subprocess.run(cli_args + ["--dry-run"], capture_output=True, text=True, cwd=str(_HERE))
+            if result.returncode == 0:
+                try:
+                    queue_data = json.loads(result.stdout or "{}").get("queue", [])
+                except json.JSONDecodeError:
+                    queue_data = []
+                if queue_data:
+                    st.dataframe(pd.DataFrame(queue_data), width="stretch", hide_index=True)
+                else:
+                    st.info("No jobs matched the queue filters.")
+            else:
+                st.error("Queue preview failed.")
+                st.code(result.stderr or result.stdout)
+
+    with b2:
+        fill_disabled = bool(readiness["missing_profile_fields"])
+        if st.button("Open & Fill", disabled=fill_disabled, width="stretch"):
+            with st.spinner("Opening browser and filling safe fields. No final submit will be clicked."):
+                result = subprocess.run(cli_args, capture_output=True, text=True, cwd=str(_HERE))
+            if result.returncode == 0:
+                try:
+                    result_data = json.loads(result.stdout or "{}").get("results", [])
+                except json.JSONDecodeError:
+                    result_data = []
+                if result_data:
+                    st.success(f"Processed {len(result_data)} job(s).")
+                    st.dataframe(pd.DataFrame(result_data), width="stretch", hide_index=True)
+                else:
+                    st.info("No jobs were processed.")
+            else:
+                st.error("Auto-apply run failed.")
+                st.code(result.stderr or result.stdout)
+
+    st.markdown(
+        surface_header_html(
+            "Application tracker",
+            "Current application-state view from SQLite. Final submissions should be marked manually after review.",
+        ),
+        unsafe_allow_html=True,
+    )
+    if df.empty:
+        st.info("No jobs in the tracker yet.")
+    else:
+        app_cols = [
+            "id", "company", "title", "status", "priority", "application_status",
+            "ats_provider", "application_url", "blockers", "human_required_reason",
+            "last_apply_attempt_at",
+        ]
+        available_cols = [col for col in app_cols if col in df.columns]
+        app_df = df[available_cols].copy()
+        st.dataframe(app_df, width="stretch", hide_index=True)
+
+        st.markdown("**Manual confirmation**")
+        m1, m2, _ = st.columns([1, 1, 2])
+        with m1:
+            submitted_job_id = st.number_input("Submitted job ID", min_value=0, value=0, step=1)
+        with m2:
+            if st.button("Mark Submitted", disabled=not submitted_job_id, width="stretch"):
+                match = df[df["id"] == int(submitted_job_id)]
+                if match.empty:
+                    st.error("No job found with that ID.")
+                else:
+                    submitted_url = match.iloc[0]["url"]
+                    store.update_application_state(
+                        submitted_url,
+                        application_status="SUBMITTED",
+                        human_required_reason="",
+                        apply_notes="Marked submitted after human confirmation.",
+                        touch_attempt=False,
+                    )
+                    store.update_job_status(submitted_url, "Applied")
+                    st.success("Marked application as submitted and tracker status as Applied.")
+                    st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tab 4 — AI Summary
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_summary:

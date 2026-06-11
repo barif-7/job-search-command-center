@@ -1,5 +1,7 @@
 # Database
 *.sqlite
+data/jobs.db
+data/apply/
 
 # Environment & secrets
 .env
@@ -34,3 +36,7 @@ Thumbs.db
 *.swo
 
 # Claude Code session data
+.claude/
+
+# Generated artifacts
+job-search-results.md

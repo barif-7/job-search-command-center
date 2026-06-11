@@ -107,6 +107,22 @@ JOB_STATUSES = [
 
 JOB_PRIORITIES = [1, 2, 3, 4, 5]
 
+# ── Auto-apply metadata ───────────────────────────────────────────────────
+
+APPLICATION_STATUSES = [
+    "NOT_STARTED",
+    "QUEUED",
+    "OPENED",
+    "FILLED_PARTIALLY",
+    "READY_FOR_REVIEW",
+    "READY_TO_SUBMIT",
+    "SUBMITTED",
+    "BLOCKED",
+    "SKIPPED",
+]
+
+APPLY_INPUT_DIR = str(_HERE / "data" / "apply")
+
 # ── AI fit scoring (optional) ──────────────────────────────────────────────
 
 OPENAI_API_KEY = ""

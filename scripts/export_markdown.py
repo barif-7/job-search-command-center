@@ -3,14 +3,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from config import MARKDOWN_EXPORT_PATH
 from jobsearch.store import JobStore
 
 store = JobStore()
 jobs = store.get_all_jobs()
 
 lines = []
-for j in jobs:
-    lines.append(f"- [{j.company}] {j.title} - {j.location} ({j.board})\n  {j.url}\n")
+groups = {}
+for job in jobs:
+    groups.setdefault(job.status or "Unknown", []).append(job)
 
-Path("job-search-results.md").write_text("# Job Search Results\n\n" + "\n".join(lines))
-print("Exported", len(lines), "jobs to job-search-results.md")
+for status, group in sorted(groups.items()):
+    lines.append(f"\n## {status}\n")
+    for j in group:
+        date_str = j.date_found.strftime("%Y-%m-%d") if j.date_found else "?"
+        lines.append(f"- **[{j.company}]** {j.title} — {j.location} ({j.board}, {date_str})")
+        lines.append(f"  {j.url}")
+        if j.notes:
+            lines.append(f"  _Notes: {j.notes}_")
+        lines.append("")
+
+export_path = Path(MARKDOWN_EXPORT_PATH)
+export_path.write_text("# Job Search Results\n" + "\n".join(lines))
+print(f"Exported {len(jobs)} jobs to {export_path}")
