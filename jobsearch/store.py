@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 from .models import Job
@@ -9,82 +10,76 @@ from .utils import clean_text
 
 logger = logging.getLogger(__name__)
 
+MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+
+# Columns added after the original schema; backfilled into legacy
+# databases before versioned migrations run, so index migrations can
+# assume they exist.
+_LEGACY_COLUMN_BACKFILL = {
+    "application_status": "TEXT DEFAULT 'NOT_STARTED'",
+    "application_url": "TEXT",
+    "ats_provider": "TEXT",
+    "fields_completed": "TEXT",
+    "resume_uploaded": "INTEGER",
+    "blockers": "TEXT",
+    "last_apply_attempt_at": "TEXT",
+    "apply_notes": "TEXT",
+    "human_required_reason": "TEXT",
+}
+
+
 class JobStore:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path if db_path is not None else get_settings().database_path
         self.conn = None
         self.cursor = None
         self._ensure_connected()
-        self.create_tables()
+        self.run_migrations()
 
     def _ensure_connected(self):
         if self.conn is None:
-            from pathlib import Path
-            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            if self.db_path != ":memory:":
+                Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
             self.conn = sqlite3.connect(self.db_path)
             self.conn.row_factory = sqlite3.Row # Access columns by name
             self.cursor = self.conn.cursor()
 
-    def create_tables(self):
-        """Creates the jobs table if it doesn't exist."""
-        query = """
-        CREATE TABLE IF NOT EXISTS jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company TEXT,
-            title TEXT,
-            location TEXT,
-            normalized_location TEXT,
-            url TEXT UNIQUE NOT NULL,
-            board TEXT,
-            description TEXT,
-            compensation TEXT,
-            date_found TEXT,
-            last_seen TEXT,
-            status TEXT DEFAULT 'New',
-            priority INTEGER,
-            fit_score REAL,
-            fit_summary TEXT,
-            notes TEXT,
-            notion_page_id TEXT,
-            application_status TEXT DEFAULT 'NOT_STARTED',
-            application_url TEXT,
-            ats_provider TEXT,
-            fields_completed TEXT,
-            resume_uploaded INTEGER,
-            blockers TEXT,
-            last_apply_attempt_at TEXT,
-            apply_notes TEXT,
-            human_required_reason TEXT,
-            created_at TEXT,
-            updated_at TEXT
-        );
-        """
-        try:
-            self._ensure_connected()
-            self.cursor.execute(query)
-            self._migrate_jobs_table()
-            self.conn.commit()
-        except sqlite3.Error as e:
-            logger.error(f"Error creating tables: {e}")
+    def schema_version(self) -> int:
+        self._ensure_connected()
+        return int(self.cursor.execute("PRAGMA user_version").fetchone()[0])
 
-    def _migrate_jobs_table(self):
-        """Adds newer columns to existing SQLite databases in place."""
+    def run_migrations(self):
+        """Brings the database schema up to date.
+
+        Applies ordered migrations/NNN_*.sql files whose number exceeds the
+        database's PRAGMA user_version. Schema failures raise — a store with
+        a broken schema must not be used silently.
+        """
+        self._ensure_connected()
+        self._backfill_legacy_columns()
+        current = self.schema_version()
+        for path in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql")):
+            version = int(path.name[:3])
+            if version <= current:
+                continue
+            self.cursor.executescript(path.read_text(encoding="utf-8"))
+            self.cursor.execute(f"PRAGMA user_version = {version:d}")
+            self.conn.commit()
+            logger.info("Applied migration %s", path.name)
+
+    def _backfill_legacy_columns(self):
+        """Adds newer columns to pre-migration databases in place (idempotent)."""
+        self.cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'jobs'"
+        )
+        if not self.cursor.fetchone():
+            return
         self.cursor.execute("PRAGMA table_info(jobs)")
         existing = {row["name"] for row in self.cursor.fetchall()}
-        columns = {
-            "application_status": "TEXT DEFAULT 'NOT_STARTED'",
-            "application_url": "TEXT",
-            "ats_provider": "TEXT",
-            "fields_completed": "TEXT",
-            "resume_uploaded": "INTEGER",
-            "blockers": "TEXT",
-            "last_apply_attempt_at": "TEXT",
-            "apply_notes": "TEXT",
-            "human_required_reason": "TEXT",
-        }
-        for name, definition in columns.items():
+        for name, definition in _LEGACY_COLUMN_BACKFILL.items():
             if name not in existing:
                 self.cursor.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
+        self.conn.commit()
 
     def job_to_db_row(self, job: Job) -> Dict[str, Any]:
         """Converts a Job object to a dictionary suitable for database insertion/update."""
@@ -151,12 +146,13 @@ class JobStore:
             # Job exists, update it
             existing_job = self.db_row_to_job(existing_row)
             
-            # Fields to preserve from existing job if they are not None or are user-managed
+            # Fields to preserve from existing job if they are not None or are user-managed.
+            # date_found records when the job was FIRST seen and must survive re-fetches.
             fields_to_preserve = [
                 'status', 'priority', 'fit_score', 'fit_summary', 'notes', 'notion_page_id',
                 'application_status', 'application_url', 'ats_provider', 'fields_completed',
                 'resume_uploaded', 'blockers', 'last_apply_attempt_at', 'apply_notes',
-                'human_required_reason', 'created_at'
+                'human_required_reason', 'created_at', 'date_found'
             ]
             
             for field in fields_to_preserve:

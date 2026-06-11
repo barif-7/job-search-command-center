@@ -1,4 +1,6 @@
 import unittest
+from datetime import datetime, timezone
+
 from jobsearch.store import JobStore
 from jobsearch.models import Job
 
@@ -33,6 +35,37 @@ class TestStore(unittest.TestCase):
         self.assertEqual(saved.application_url, 'https://example.com/job2/apply')
         self.assertTrue(saved.resume_uploaded)
         store.close()
+
+    def test_refetch_preserves_user_fields_and_date_found(self):
+        """A re-run of fetch must never clobber user-managed fields or date_found."""
+        store = JobStore(db_path=':memory:')
+        url = 'https://example.com/job3'
+        first_seen = datetime(2026, 1, 5, tzinfo=timezone.utc)
+        original = Job(company='Acme', title='iOS Engineer', location='Remote',
+                       url=url, board='lever', date_found=first_seen)
+        self.assertTrue(store.insert_or_update_job(original))
+
+        # User curates the job between fetch runs
+        store.update_job_status(url, 'Interested')
+        store.update_job_details(url, priority=5, notes='dream team')
+
+        # Same posting comes back from a later fetch with a fresh date_found
+        refetched = Job(company='Acme', title='iOS Engineer (Senior)', location='Remote',
+                        url=url, board='lever',
+                        date_found=datetime(2026, 2, 1, tzinfo=timezone.utc))
+        result = store.insert_or_update_job(refetched)
+        self.assertFalse(result)  # updated, not inserted
+
+        saved = store.get_job_by_url(url)
+        self.assertEqual(saved.status, 'Interested')
+        self.assertEqual(saved.priority, 5)
+        self.assertEqual(saved.notes, 'dream team')
+        self.assertEqual(saved.date_found, first_seen)
+        # Non-user fields do refresh
+        self.assertEqual(saved.title, 'iOS Engineer (Senior)')
+        self.assertEqual(len(store.get_all_jobs()), 1)
+        store.close()
+
 
 if __name__ == '__main__':
     unittest.main()
