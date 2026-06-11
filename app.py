@@ -1872,22 +1872,10 @@ with tab_dashboard:
 
         with btn2:
             if st.button("Export to Markdown", width="stretch"):
-                jobs = store.get_all_jobs()
-                groups: dict = {}
-                for j in jobs:
-                    groups.setdefault(j.status or "Unknown", []).append(j)
-                lines = ["# Job Search Results\n"]
-                for status, group in sorted(groups.items()):
-                    lines.append(f"\n## {status}\n")
-                    for j in group:
-                        date_str = j.date_found.strftime("%Y-%m-%d") if j.date_found else "?"
-                        lines.append(f"- **[{j.company}]** {j.title} — {j.location} ({j.board}, {date_str})")
-                        lines.append(f"  {j.url}")
-                        if j.notes:
-                            lines.append(f"  _Notes: {j.notes}_")
-                        lines.append("")
-                MD_PATH.write_text("\n".join(lines))
-                st.success(f"Exported {len(jobs)} jobs to `{MD_PATH.name}`")
+                from jobsearch.markdown_export import MarkdownExporter
+
+                count, path = MarkdownExporter(store).export(path=str(MD_PATH))
+                st.success(f"Exported {count} jobs to `{path.name}`")
 
     with right_lane:
         st.markdown(
