@@ -1,0 +1,14 @@
+{
+  "common_questions": {
+    "Why do you want to work here?": "Short reusable answer goes here.",
+    "What is your expected salary?": "Open to discussion based on the full package."
+  },
+  "availability": {
+    "notice_period": "2 weeks",
+    "earliest_start_date": "Flexible"
+  },
+  "visa_status": "Citizen",
+  "work_authorization": "Authorized to work in Canada without sponsorship",
+  "willing_to_travel": "Occasionally",
+  "preferred_work_arrangement": "Remote or hybrid"
+}

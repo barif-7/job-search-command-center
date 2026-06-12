@@ -1,0 +1,23 @@
+{
+  "full_name": "Jane Doe",
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "email": "jane@example.com",
+  "phone": "+1 555 555 5555",
+  "linkedin_url": "https://www.linkedin.com/in/janedoe",
+  "github_url": "https://github.com/janedoe",
+  "portfolio_url": "https://janedoe.dev",
+  "website_url": "",
+  "location_city": "Toronto",
+  "location_region": "ON",
+  "location_country": "Canada",
+  "current_company": "Acme Corp",
+  "additional_information": "",
+  "education_summary": "BSc Computer Science, Example University",
+  "checkbox_answers": {
+    "I agree to the privacy policy": true
+  },
+  "radio_answers": {
+    "Are you legally authorized to work in Canada?": "Yes"
+  }
+}

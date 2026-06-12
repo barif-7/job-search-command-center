@@ -1,0 +1,23 @@
+{
+  "must_have": ["iOS or mobile-focused role"],
+  "deal_breakers": ["unpaid trial project"],
+  "salary": {
+    "minimum": 0,
+    "currency": "CAD"
+  },
+  "locations": {
+    "allowed": ["Remote", "Toronto"],
+    "blocked": []
+  },
+  "company_size": {
+    "minimum": 0,
+    "maximum": 0
+  },
+  "industries": {
+    "preferred": [],
+    "blocked": []
+  },
+  "max_applications_per_day": 10,
+  "skip_if_no_salary_range": false,
+  "require_cover_letter": false
+}
