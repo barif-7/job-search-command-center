@@ -65,6 +65,34 @@ class TestStore(unittest.TestCase):
         self.assertEqual(saved.title, 'iOS Engineer (Senior)')
         self.assertEqual(len(store.get_all_jobs()), 1)
         store.close()
+    def test_application_attempts_keep_full_history(self):
+        """The jobs row keeps latest state only; attempts accumulate one row each."""
+        store = JobStore(db_path=':memory:')
+        url = 'https://example.com/job4'
+        store.insert_or_update_job(Job(company='Acme', title='Test Dev', location='Remote', url=url))
+
+        first = store.record_application_attempt(
+            job_url=url, attempted_at='2026-06-01T10:00:00+00:00',
+            status='BLOCKED', blockers='captcha', review_dir='/tmp/r1',
+        )
+        second = store.record_application_attempt(
+            job_url=url, attempted_at='2026-06-02T10:00:00+00:00',
+            status='READY_FOR_REVIEW', detected_count=12,
+            fields_completed='email, phone', resume_uploaded=True, review_dir='/tmp/r2',
+        )
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertNotEqual(first, second)
+
+        attempts = store.get_application_attempts(url)
+        self.assertEqual(len(attempts), 2)
+        # Most recent first
+        self.assertEqual(attempts[0]['status'], 'READY_FOR_REVIEW')
+        self.assertEqual(attempts[0]['detected_count'], 12)
+        self.assertEqual(attempts[0]['resume_uploaded'], 1)
+        self.assertEqual(attempts[1]['status'], 'BLOCKED')
+        self.assertEqual(attempts[1]['blockers'], 'captcha')
+        store.close()
 
 
 if __name__ == '__main__':

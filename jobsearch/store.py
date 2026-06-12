@@ -353,6 +353,57 @@ class JobStore:
             self.conn.rollback()
             return False
 
+    def record_application_attempt(
+        self,
+        job_url: str,
+        attempted_at: str,
+        job_id: Optional[int] = None,
+        application_url: Optional[str] = None,
+        ats_provider: Optional[str] = None,
+        status: Optional[str] = None,
+        detected_count: Optional[int] = None,
+        fields_completed: Optional[str] = None,
+        skipped_fields: Optional[str] = None,
+        resume_uploaded: Optional[bool] = None,
+        blockers: Optional[str] = None,
+        human_required_reason: Optional[str] = None,
+        notes: Optional[str] = None,
+        review_dir: Optional[str] = None,
+    ) -> Optional[int]:
+        """Appends one row to the per-attempt audit trail. Returns the row id."""
+        self._ensure_connected()
+        try:
+            self.cursor.execute(
+                """
+                INSERT INTO application_attempts (
+                    job_id, job_url, attempted_at, application_url, ats_provider,
+                    status, detected_count, fields_completed, skipped_fields,
+                    resume_uploaded, blockers, human_required_reason, notes, review_dir
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id, job_url, attempted_at, application_url, ats_provider,
+                    status, detected_count, fields_completed, skipped_fields,
+                    int(bool(resume_uploaded)) if resume_uploaded is not None else None,
+                    blockers, human_required_reason, notes, review_dir,
+                ),
+            )
+            self.conn.commit()
+            return self.cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error(f"Error recording application attempt for {job_url}: {e}")
+            self.conn.rollback()
+            return None
+
+    def get_application_attempts(self, job_url: str) -> List[Dict[str, Any]]:
+        """Returns the attempt history for a job, most recent first."""
+        self._ensure_connected()
+        self.cursor.execute(
+            "SELECT * FROM application_attempts WHERE job_url = ? ORDER BY attempted_at DESC",
+            (job_url,),
+        )
+        return [dict(row) for row in self.cursor.fetchall()]
+
     def close(self):
         """Closes the database connection."""
         if self.conn:

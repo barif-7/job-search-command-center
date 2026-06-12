@@ -9,11 +9,13 @@ from jobsearch.apply.ats import classify_blocker, detect_ats_provider, resolve_a
 from jobsearch.apply.field_matching import collect_visible_fields, fill_boolean_answers, fill_text_if_possible
 from jobsearch.apply.profile import RESUME_PDF_PATH, load_candidate_profile
 from jobsearch.apply.results import ApplyResult
+from jobsearch.apply.review import create_review_dir, write_review_bundle
 from jobsearch.models import Job
 from jobsearch.settings import get_settings
 from jobsearch.store import JobStore
 
 RESULTS_DIR = Path(get_settings().apply_input_dir) / "results"
+REVIEWS_DIR = Path(get_settings().apply_input_dir) / "reviews"
 
 
 def build_apply_queue(
@@ -131,8 +133,18 @@ def fill_page_safely(page, profile: dict[str, Any]) -> dict[str, Any]:
     ]
 
     for frame in frames:
+        frame_fields = collect_visible_fields(frame)
         for bucket in ("inputs", "textareas", "selects", "radios", "buttons"):
-            detected.extend(collect_visible_fields(frame).get(bucket, []))
+            for attrs in frame_fields.get(bucket, []):
+                detected.append(
+                    {
+                        "kind": bucket,
+                        "label": attrs.get("label", ""),
+                        "name": attrs.get("name", ""),
+                        "type": attrs.get("type", ""),
+                        "required": bool(attrs.get("required")),
+                    }
+                )
 
     for item in mapping:
         value = item["value"]
@@ -140,14 +152,16 @@ def fill_page_safely(page, profile: dict[str, Any]) -> dict[str, Any]:
             skipped.append({"field": item["key"], "reason": "empty profile value"})
             continue
         done = False
+        best_score = 0
         for frame in frames:
-            ok, attrs = fill_text_if_possible(frame, item["hints"], value, kinds=item.get("kinds", ("inputs", "textareas", "selects")))
+            ok, attrs, score = fill_text_if_possible(frame, item["hints"], value, kinds=item.get("kinds", ("inputs", "textareas", "selects")))
+            best_score = max(best_score, score)
             if ok:
-                filled.append({"field": item["key"], "value": value, "matched": attrs})
+                filled.append({"field": item["key"], "value": value, "matched": attrs, "score": score})
                 done = True
                 break
         if not done:
-            skipped.append({"field": item["key"], "reason": "no confident visible match"})
+            skipped.append({"field": item["key"], "reason": f"no confident visible match (best score {best_score})"})
 
     for frame in frames:
         bool_filled, bool_skipped = fill_boolean_answers(
@@ -166,12 +180,39 @@ def fill_page_safely(page, profile: dict[str, Any]) -> dict[str, Any]:
             break
 
     return {
+        "detected": detected,
         "detected_count": len(detected),
         "filled": filled,
         "skipped": skipped,
         "resume_uploaded": resume_uploaded,
         "upload_error": upload_error,
     }
+
+
+def _screenshot(page, path: Path, result: ApplyResult) -> None:
+    try:
+        page.screenshot(path=str(path), full_page=True)
+    except Exception as exc:
+        result.notes.append(f"screenshot failed ({path.name}): {exc}")
+
+
+def record_attempt(store: JobStore, result: ApplyResult) -> None:
+    store.record_application_attempt(
+        job_url=result.job_url,
+        attempted_at=result.attempted_at,
+        job_id=result.job_id,
+        application_url=result.application_url,
+        ats_provider=result.ats_provider,
+        status=result.status,
+        detected_count=result.detected_count,
+        fields_completed=", ".join(result.fields_completed),
+        skipped_fields=json.dumps(result.skipped_fields, ensure_ascii=False),
+        resume_uploaded=result.resume_uploaded,
+        blockers=", ".join(result.blockers),
+        human_required_reason=result.human_required_reason,
+        notes="; ".join(result.notes),
+        review_dir=result.review_dir,
+    )
 
 
 def run_apply_batch(
@@ -200,11 +241,15 @@ def run_apply_batch(
                 application_url=app_url,
                 ats_provider=provider,
                 status="OPENED",
+                attempted_at=datetime.now(timezone.utc).isoformat(),
             )
+            review_dir = create_review_dir(REVIEWS_DIR, result)
+            result.review_dir = str(review_dir)
             page = context.new_page()
             try:
                 page.goto(app_url, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(2000)
+                _screenshot(page, review_dir / "before.png", result)
                 blocker = classify_blocker(visible_text(page), frame_urls(page))
                 if blocker:
                     result.status = "BLOCKED" if blocker != "closed" else "SKIPPED"
@@ -213,6 +258,10 @@ def run_apply_batch(
                 else:
                     filled = fill_page_safely(page, profile)
                     result.fields_completed = [item["field"] for item in filled["filled"]]
+                    result.detected_count = filled["detected_count"]
+                    result.detected_fields = filled["detected"]
+                    result.filled_fields = filled["filled"]
+                    result.skipped_fields = filled["skipped"]
                     result.resume_uploaded = bool(filled["resume_uploaded"])
                     if filled["upload_error"]:
                         result.notes.append(filled["upload_error"])
@@ -222,12 +271,15 @@ def run_apply_batch(
                     else:
                         result.status = "FILLED_PARTIALLY"
                         result.human_required_reason = "manual review required"
+                _screenshot(page, review_dir / "after.png", result)
             except Exception as exc:
                 result.status = "BLOCKED"
                 result.blockers.append("automation_error")
                 result.human_required_reason = "automation error"
                 result.notes.append(str(exc))
+                _screenshot(page, review_dir / "after.png", result)
             finally:
+                write_review_bundle(result)
                 store.update_application_state(
                     job.url,
                     application_status=result.status,
@@ -239,6 +291,7 @@ def run_apply_batch(
                     apply_notes="; ".join(result.notes),
                     human_required_reason=result.human_required_reason,
                 )
+                record_attempt(store, result)
                 results.append(result)
         browser.close()
     save_results(results)

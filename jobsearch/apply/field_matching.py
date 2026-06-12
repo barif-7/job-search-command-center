@@ -50,9 +50,29 @@ def field_haystack(attrs: dict[str, Any]) -> str:
     )
 
 
+# Attributes that identify a field reliably vs. ones that merely describe it.
+STRONG_ATTRS = ["name", "id", "label", "ariaLabel"]
+WEAK_ATTRS = ["placeholder", "text", "type"]
+
+# A field is only filled when its score reaches this threshold: one strong
+# attribute match (2 points). A lone weak match (1 point) is not enough —
+# previously any single substring hit anywhere triggered a fill.
+MIN_FILL_CONFIDENCE = 2
+
+
 def score_field(attrs: dict[str, Any], hints: list[str]) -> int:
-    hay = field_haystack(attrs)
-    return sum(1 for hint in hints if normalize(hint) in hay)
+    strong_hay = normalize(" ".join(str(attrs.get(k, "")) for k in STRONG_ATTRS))
+    weak_hay = normalize(" ".join(str(attrs.get(k, "")) for k in WEAK_ATTRS))
+    score = 0
+    for hint in hints:
+        h = normalize(hint)
+        if not h:
+            continue
+        if h in strong_hay:
+            score += 2
+        elif h in weak_hay:
+            score += 1
+    return score
 
 
 def collect_visible_fields(frame) -> dict[str, list[dict[str, Any]]]:
@@ -138,10 +158,10 @@ def locate_best_field(frame, hints: list[str], kinds=("inputs", "textareas", "se
 
 def fill_text_if_possible(frame, hints: list[str], value: str, kinds=("inputs", "textareas", "selects")):
     if not value:
-        return False, {}
+        return False, {}, 0
     el, attrs, score = locate_best_field(frame, hints, kinds=kinds)
-    if not el or score <= 0:
-        return False, {}
+    if not el or score < MIN_FILL_CONFIDENCE:
+        return False, attrs, score
     try:
         if el.evaluate("el => el.tagName") == "SELECT":
             try:
@@ -150,9 +170,9 @@ def fill_text_if_possible(frame, hints: list[str], value: str, kinds=("inputs", 
                 el.select_option(value=value)
         else:
             el.fill(value)
-        return True, attrs
+        return True, attrs, score
     except Exception:
-        return False, attrs
+        return False, attrs, score
 
 
 def fill_boolean_answers(frame, checkbox_answers: dict[str, Any], radio_answers: dict[str, Any]):
@@ -214,12 +234,18 @@ def click_choice(frame, question: str, expected_value: str | bool, selector: str
                 "value": el.get_attribute("value") or "",
             }
             hay = normalize(" ".join(str(v) for v in attrs.values()))
+            label = normalize(attrs["label"])
+            question_matched = bool(q and q in hay) or bool(label and (label in q or q in label))
+            # The answer value alone ("yes", "true") matches far too many
+            # controls — the question text itself must match somewhere.
+            if not question_matched:
+                continue
             score = 0
             if q and q in hay:
                 score += 5
             if a and a in hay:
                 score += 3
-            if normalize(attrs["label"]) in q or q in normalize(attrs["label"]):
+            if label and (label in q or q in label):
                 score += 2
             if score > best_score:
                 best = el

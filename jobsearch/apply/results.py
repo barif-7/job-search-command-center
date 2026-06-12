@@ -13,12 +13,17 @@ class ApplyResult:
     application_url: str
     ats_provider: str
     status: str
+    attempted_at: str = ""
     fields_completed: list[str] = field(default_factory=list)
+    detected_count: int = 0
+    detected_fields: list[dict[str, Any]] = field(default_factory=list)
+    filled_fields: list[dict[str, Any]] = field(default_factory=list)
+    skipped_fields: list[dict[str, Any]] = field(default_factory=list)
     resume_uploaded: bool = False
     blockers: list[str] = field(default_factory=list)
     human_required_reason: str = ""
     notes: list[str] = field(default_factory=list)
+    review_dir: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
