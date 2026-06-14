@@ -927,6 +927,9 @@ from typing import Optional
 from jobsearch.parsing.markdown import parse_md_jobs as _parse_md_jobs
 from jobsearch.parsing.markdown import parse_md_stats as _parse_md_stats
 from jobsearch.parsing.query import parse_comp_value, parse_query_chips
+from jobsearch.ranking.clustering import cluster_jobs
+from jobsearch.ranking.filters import apply_filters
+from jobsearch.ranking.keywords import load_keyword_data as _load_keyword_data
 
 
 @st.cache_data(show_spinner=False)
@@ -945,34 +948,10 @@ def _feed_jobs_by_mtime(mtime: float) -> list[dict]:
     return parse_md_jobs(MD_PATH.read_text())
 
 
-_STOP_WORDS = {
-    "engineer", "senior", "staff", "lead", "principal", "associate",
-    "and", "of", "at", "for", "a", "an", "the", "in", "with", "applied",
-}
-
-
 @st.cache_data(show_spinner=False)
 def load_keyword_data() -> dict:
-    """
-    Load keyword_report.json produced by extract_keywords.py.
-    Returns {url: set_of_all_keywords_across_categories}.
-    """
-    kw_path = Path(__file__).parent.parent / "keyword_report.json"
-    if not kw_path.exists():
-        return {}
-    try:
-        raw = json.loads(kw_path.read_text(encoding="utf-8"))
-        result = {}
-        for entry in raw:
-            url = entry.get("url", "")
-            all_kw: set[str] = set()
-            for kw_list in entry.get("keywords", {}).values():
-                all_kw.update(kw_list)
-            result[url] = all_kw
-        return result
-    except Exception as exc:
-        logger.warning("Could not load keyword_report.json: %s", exc)
-        return {}
+    """Cached UI wrapper over the pure keyword loader."""
+    return _load_keyword_data(Path(__file__).parent.parent / "keyword_report.json")
 
 
 def city_cover_config(location: str) -> dict:
@@ -1003,155 +982,6 @@ def city_cover_html(location: str) -> str:
         f'</div>'
         f'</div>'
     )
-
-
-def _title_tokens(title: str) -> set[str]:
-    return {
-        w.lower() for w in re.split(r"[\s,/()\-@&]+", title)
-        if w.lower() not in _STOP_WORDS and len(w) > 2
-    }
-
-
-def _jaccard(a: set, b: set) -> float:
-    union = a | b
-    return len(a & b) / len(union) if union else 0.0
-
-
-def cluster_jobs(jobs: list[dict], kw_data: dict, threshold: float = 0.25) -> list[dict]:
-    """
-    Greedy single-linkage clustering by keyword Jaccard similarity.
-    Falls back to title-token similarity when keyword data is absent.
-    Returns [{"label": str, "keywords": list[str], "jobs": list[dict]}, ...].
-    """
-    if not jobs:
-        return []
-
-    features = [
-        kw_data.get(j["url"]) or _title_tokens(j["title"])
-        for j in jobs
-    ]
-
-    n = len(jobs)
-    assigned = [-1] * n
-    clusters = []
-
-    for i in range(n):
-        if assigned[i] != -1:
-            continue
-        cid = len(clusters)
-        assigned[i] = cid
-        members = [i]
-
-        for j in range(i + 1, n):
-            if assigned[j] != -1:
-                continue
-            if _jaccard(features[i], features[j]) >= threshold:
-                assigned[j] = cid
-                members.append(j)
-
-        # Label: terms shared across every member; fall back to title tokens
-        shared = set.intersection(*(features[m] for m in members))
-        if not shared:
-            title_sets = [_title_tokens(jobs[m]["title"]) for m in members]
-            shared = set.intersection(*title_sets) if title_sets else set()
-
-        label_terms = sorted(shared - _STOP_WORDS)[:4]
-        label = " · ".join(t.title() for t in label_terms) or jobs[members[0]]["title"]
-
-        clusters.append({
-            "label": label,
-            "jobs": [jobs[m] for m in members],
-            "keywords": sorted(shared)[:8],
-        })
-
-    # Highest-priority cluster first
-    clusters.sort(key=lambda c: -max((j["priority"] or 0) for j in c["jobs"]))
-    return clusters
-
-
-def apply_filters(
-    jobs: list[dict],
-    free_text: str,
-    chips: list[dict],
-    kw_data: dict,
-) -> list[dict]:
-    """Apply free-text and structured chip filters."""
-    result = jobs
-
-    if free_text:
-        q = free_text.lower()
-        result = [
-            j for j in result
-            if q in j["company"].lower()
-            or q in j["title"].lower()
-            or any(q in kw for kw in kw_data.get(j["url"], set()))
-        ]
-
-    for chip in chips:
-        key, val = chip["key"], chip["value"].lower()
-
-        if key == "loc":
-            result = [j for j in result if val in j["location"].lower()]
-
-        elif key == "type":
-            t = {"ai": "ai", "ios": "ios", "top": "top", "new": "new"}.get(val)
-            if t:
-                result = [j for j in result if j["type"] == t]
-
-        elif key == "priority":
-            try:
-                if val.endswith("+"):
-                    thresh = int(val[:-1])
-                    result = [j for j in result if j["priority"] >= thresh]
-                elif "-" in val:
-                    lo, hi = val.split("-", 1)
-                    result = [j for j in result if int(lo) <= j["priority"] <= int(hi)]
-                else:
-                    result = [j for j in result if j["priority"] == int(val)]
-            except ValueError:
-                pass
-
-        elif key == "skill":
-            result = [
-                j for j in result
-                if val in {k.lower() for k in kw_data.get(j["url"], set())}
-            ]
-
-        elif key == "company":
-            result = [j for j in result if val in j["company"].lower()]
-
-        elif key == "board":
-            result = [j for j in result if val in j["board"].lower()]
-
-        elif key == "src":
-            if val == "new":
-                result = [j for j in result if j["type"] == "new"]
-            elif val == "curated":
-                result = [j for j in result if j["type"] != "new"]
-
-        elif key == "comp":
-            # comp:100k+  comp:150k+  comp:100k-200k
-            try:
-                v = val.replace("k", "").replace("K", "").replace("$", "").strip()
-                if v.endswith("+"):
-                    thresh = int(v[:-1]) * 1000
-                    result = [
-                        j for j in result
-                        if (cv := parse_comp_value(j.get("comp", ""))) is not None
-                        and cv >= thresh
-                    ]
-                elif "-" in v:
-                    lo_s, hi_s = v.split("-", 1)
-                    lo, hi = int(lo_s.strip()) * 1000, int(hi_s.strip()) * 1000
-                    result = [
-                        j for j in result
-                        if (cv := parse_comp_value(j.get("comp", ""))) is not None
-                        and lo <= cv <= hi
-                    ]
-            except (ValueError, AttributeError):
-                pass
-
-    return result
 
 
 # ── Card renderer ──────────────────────────────────────────────────────────
