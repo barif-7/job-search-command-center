@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-06-14 — Extract a testable core out of app.py (Phase 2)
+
+A pure refactor: move business/parsing/ranking/rendering logic out of the
+~2,400-line Streamlit script into importable, unit-tested modules. No behavior,
+visual, or database-effect change — `app.py` is now Streamlit wiring, layout,
+CSS, and thin cached wrappers. Each slice was pinned by golden-master
+characterization tests captured from the original in-app code before the move,
+and `pytest` stayed green throughout (32 → 96 tests).
+
+### New modules
+
+- `jobsearch/parsing/` — `markdown.py` (parse_md_jobs/parse_md_stats/
+  parse_job_entry/parse_exported_job_bullet) and `query.py` (parse_comp_value,
+  parse_query_chips).
+- `jobsearch/ranking/` — `filters.py` (apply_filters), `clustering.py`
+  (cluster_jobs, jaccard, title_tokens), `keywords.py` (load_keyword_data).
+- `jobsearch/services/` — `logo_service.py` (company→domain→logo URL
+  resolution), `summary_service.py` (the Claude briefing generator),
+  `pipeline_service.py` (single subprocess execution path for the CLI scripts).
+- `jobsearch/ui/components.py` — card/hero/metric/badge/logo HTML builders as
+  pure string functions.
+
+### Changed
+
+- The dashboard's three inline `subprocess.run` calls now route through
+  `pipeline_service`, so the UI and CLI share one execution path.
+- `app.py` shrank from ~2,440 to ~1,380 lines and now imports its logic;
+  caching is preserved via `st.cache_data` wrappers so output is unchanged.
+
+### Intentionally out of scope
+
+No visual redesign, no new screens, no behavior change. `models.py` was left in
+place (a `domain/` package would have churned many imports for no behavior
+gain) and the large `APP_CSS` constant stays in the UI layer (`app.py`).
+
 ## 2026-06-12 — Script & workflow hardening (Phase 1)
 
 The goal of this pass: make the workflow loop (fetch → store → export/sync →
