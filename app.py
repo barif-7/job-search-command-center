@@ -12,7 +12,6 @@ import os
 import re
 import json
 import html
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +28,7 @@ sys.path.insert(0, str(_HERE.parent))  # for careerBoards
 
 from config import APPLICATION_STATUSES, JOB_STATUSES
 from jobsearch.apply.profile import profile_readiness
+from jobsearch.services import pipeline_service
 from jobsearch.services.logo_service import logo_sources as _logo_sources
 from jobsearch.services.logo_service import logo_url as _logo_url
 from jobsearch.settings import get_settings
@@ -1169,12 +1169,7 @@ with tab_dashboard:
         with btn1:
             if st.button("Fetch new jobs", type="primary", width="stretch"):
                 with st.spinner("Fetching jobs from all boards…"):
-                    result = subprocess.run(
-                        [sys.executable, str(_HERE / "scripts" / "run_fetch.py")],
-                        capture_output=True,
-                        text=True,
-                        cwd=str(_HERE),
-                    )
+                    result = pipeline_service.run_fetch()
                 if result.returncode == 0:
                     st.success("Fetch complete. Table refreshed.")
                     if result.stdout:
@@ -1567,23 +1562,17 @@ with tab_apply:
     with q4:
         specific_job_id = st.number_input("Job ID", min_value=0, value=0, step=1, help="0 means use queue filters.")
 
-    cli_args = [
-        sys.executable,
-        str(_HERE / "scripts" / "run_auto_apply.py"),
-        "--limit",
-        str(int(apply_limit)),
-    ]
-    if apply_status_filter != "Any":
-        cli_args.extend(["--status", apply_status_filter])
-    if apply_min_priority != "Any":
-        cli_args.extend(["--min-priority", apply_min_priority])
-    if specific_job_id:
-        cli_args.extend(["--job-id", str(int(specific_job_id))])
+    apply_kwargs = dict(
+        limit=int(apply_limit),
+        status=None if apply_status_filter == "Any" else apply_status_filter,
+        min_priority=None if apply_min_priority == "Any" else apply_min_priority,
+        job_id=int(specific_job_id) or None,
+    )
 
     b1, b2, _ = st.columns([1, 1, 2])
     with b1:
         if st.button("Preview Queue", type="primary", width="stretch"):
-            result = subprocess.run(cli_args + ["--dry-run"], capture_output=True, text=True, cwd=str(_HERE))
+            result = pipeline_service.run_auto_apply(**apply_kwargs, dry_run=True)
             if result.returncode == 0:
                 try:
                     queue_data = json.loads(result.stdout or "{}").get("queue", [])
@@ -1601,7 +1590,7 @@ with tab_apply:
         fill_disabled = bool(readiness["missing_profile_fields"])
         if st.button("Open & Fill", disabled=fill_disabled, width="stretch"):
             with st.spinner("Opening browser and filling safe fields. No final submit will be clicked."):
-                result = subprocess.run(cli_args, capture_output=True, text=True, cwd=str(_HERE))
+                result = pipeline_service.run_auto_apply(**apply_kwargs)
             if result.returncode == 0:
                 try:
                     result_data = json.loads(result.stdout or "{}").get("results", [])
