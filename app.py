@@ -922,237 +922,21 @@ if "feed_sort" not in st.session_state:
 
 # ── Markdown parser helpers ────────────────────────────────────────────────
 
-@st.cache_data(show_spinner=False)
-def parse_md_stats(content: str) -> dict:
-    """Extract quick stats from the markdown document."""
-    stats: dict = {}
-
-    # Count curated (manually reviewed) entries — numbered headings like "### 1." or "### AI-SF-1."
-    curated = re.findall(r"^###\s+(?:\d+\.|AI-[A-Z]+-\d+\.|TS-\d+\.)", content, re.MULTILINE)
-    stats["curated"] = len(curated)
-
-    # Count newly fetched entries
-    new_entries = re.findall(r"^###\s+NEW-\d+\.", content, re.MULTILINE)
-    stats["new_fetched"] = len(new_entries)
-
-    stats["total"] = stats["curated"] + stats["new_fetched"]
-
-    # Priority 9–10 roles
-    must_apply = re.findall(r"\*\*Priority:\s*(9|10)/10\*\*", content)
-    stats["top_priority"] = len(must_apply)
-
-    # Location breakdown — parse markdown table rows: | City... | n | n | total |
-    loc_rows = re.findall(
-        r"\|\s*(San Francisco|New York(?:\s*City)?|Seattle|Toronto|Vancouver)[^|]*\|[^|]*\|[^|]*\|\s*(\d+)\s*\|",
-        content, re.IGNORECASE,
-    )
-    if loc_rows:
-        seen: dict = {}
-        for city, count in loc_rows:
-            key = city.strip().title()
-            if "New York" in key:
-                key = "New York"
-            if key not in seen:
-                seen[key] = int(count)
-        stats["by_location"] = seen
-
-    # Last modified
-    mtime = MD_PATH.stat().st_mtime if MD_PATH.exists() else None
-    stats["last_modified"] = datetime.fromtimestamp(mtime).strftime("%b %d, %Y %H:%M") if mtime else "Unknown"
-
-    return stats
-
-
-# ── Markdown job feed parser ───────────────────────────────────────────────
-
 from typing import Optional
 
-def _parse_job_entry(heading: str, body: str, section: str) -> Optional[dict]:
-    """Parse a single ### / #### job entry into a structured dict."""
-    at_idx = heading.rfind("@")
-    if at_idx == -1:
-        return None
-
-    title_raw   = heading[:at_idx].strip()
-    company_raw = heading[at_idx + 1:].strip()
-
-    # Strip "_(see also #X)_" footnotes and trailing underscores from company
-    company = re.sub(r"\s*_\(.*?\)_.*$", "", company_raw).strip().strip("_").strip()
-    # Strip entry-number prefix and emoji from title
-    title = re.sub(
-        r"^(?:NEW-\d+\.|AI-[A-Z]+-\d+\.|TS-\d+\.|\d+\.|🔥\s*)",
-        "", title_raw,
-    ).strip()
-
-    if not company or not title:
-        return None
-
-    def field(key: str) -> str:
-        m = re.search(rf"\*\*{re.escape(key)}:\*\*\s*(.+?)(?:\n|$)", body, re.IGNORECASE)
-        return m.group(1).strip() if m else ""
-
-    # URL — first https link in the Link field
-    link_raw = field("Link")
-    url_m = re.search(r"https?://[^\s|),>]+", link_raw)
-    url = url_m.group(0).rstrip(".,)") if url_m else ""
-
-    comp = field("Comp")
-    if re.match(r"not fetched", comp, re.I):
-        comp = ""
-
-    location = field("Location")
-    board    = field("Board")
-    fit      = field("Fit")
-    if re.match(r"_?review needed_?", fit, re.I):
-        fit = ""
-    concerns = field("Concerns")
-
-    # Priority — integer, 0 = unknown/unreviewed
-    p_m = re.search(r"\*\*Priority:\s*(\?|\d+)/10\*\*", body)
-    try:
-        priority = int(p_m.group(1)) if p_m and p_m.group(1) != "?" else 0
-    except (ValueError, AttributeError):
-        priority = 0
-
-    # Status
-    s_m = re.search(r"Status:\s*\*{0,2}([^*\n|]+?)\*{0,2}(?:\n|\|)", body)
-    status = s_m.group(1).strip() if s_m else "Saved"
-
-    # Job type from heading prefix + section context
-    section_l = section.lower()
-    if re.match(r"NEW-\d+\.", title_raw):
-        job_type = "new"
-    elif "🔥" in heading or "must apply" in section_l:
-        job_type = "top"
-    elif re.match(r"AI-[A-Z]+-\d+\.", title_raw) or "ai " in section_l or "ai engineer" in section_l:
-        job_type = "ai"
-    else:
-        job_type = "ios"
-
-    # Infer city from section header when Location field is absent
-    if not location:
-        for city in ["San Francisco", "New York", "Seattle", "Toronto", "Vancouver", "Remote"]:
-            if city.lower() in section_l:
-                location = city
-                break
-
-    return {
-        "company":  company,
-        "title":    title,
-        "url":      url,
-        "comp":     comp,
-        "location": location,
-        "board":    board,
-        "fit":      fit,
-        "concerns": concerns,
-        "priority": priority,
-        "status":   status,
-        "type":     job_type,
-        "section":  section,
-    }
-
-
-def _parse_exported_job_bullet(line: str, next_line: str, section: str) -> Optional[dict]:
-    """Parse the bullet format produced by the dashboard markdown export."""
-    match = re.match(
-        r"^-\s+(?:\*\*)?\[(?P<company>[^\]]+)\](?:\*\*)?\s+"
-        r"(?P<title>.+?)\s+(?:—|-)\s+(?P<location>.*?)\s+"
-        r"\((?P<meta>[^)]*)\)\s*$",
-        line,
-    )
-    if not match:
-        return None
-
-    company = match.group("company").strip()
-    title = match.group("title").strip()
-    location = match.group("location").strip()
-    meta = [part.strip() for part in match.group("meta").split(",")]
-    board = meta[0] if meta else ""
-
-    url_m = re.search(r"https?://\S+", next_line or "")
-    url = url_m.group(0).rstrip(".,)") if url_m else ""
-
-    section_l = section.lower()
-    title_l = title.lower()
-    if any(term in title_l for term in ("ai", "machine learning", "ml engineer", "forward deployed")):
-        job_type = "ai"
-    elif any(term in title_l for term in ("ios", "mobile", "swift", "react native")):
-        job_type = "ios"
-    elif "new" in section_l:
-        job_type = "new"
-    else:
-        job_type = "new"
-
-    return {
-        "company": company,
-        "title": title,
-        "url": url,
-        "comp": "",
-        "location": location,
-        "board": board,
-        "fit": "",
-        "concerns": "",
-        "priority": 0,
-        "status": section or "New",
-        "type": job_type,
-        "section": section,
-    }
+from jobsearch.parsing.markdown import parse_md_jobs as _parse_md_jobs
+from jobsearch.parsing.markdown import parse_md_stats as _parse_md_stats
+from jobsearch.parsing.query import parse_comp_value, parse_query_chips
 
 
 @st.cache_data(show_spinner=False)
-def parse_md_jobs(content: str) -> list[dict]:
-    """
-    Walk the markdown line-by-line, track section context from ## / ### headers
-    that don't contain '@', and parse every ### / #### heading that does.
-    """
-    jobs: list[dict] = []
-    lines = content.split("\n")
-    current_section = ""
-    i = 0
+def parse_md_stats(content: str) -> dict:
+    """Cached UI wrapper over the pure stats parser (passes MD_PATH for mtime)."""
+    return _parse_md_stats(content, md_path=MD_PATH)
 
-    while i < len(lines):
-        if lines[i].startswith("- "):
-            job = _parse_exported_job_bullet(
-                lines[i],
-                lines[i + 1] if i + 1 < len(lines) else "",
-                current_section,
-            )
-            if job:
-                jobs.append(job)
-            i += 1
-            continue
 
-        h = re.match(r"^(#{2,4})\s+(.*)", lines[i])
-        if not h:
-            i += 1
-            continue
-
-        level        = len(h.group(1))
-        heading_text = h.group(2).strip()
-
-        if "@" not in heading_text:
-            # Section header — update context (## and ### levels only)
-            if level <= 3:
-                current_section = heading_text
-            i += 1
-            continue
-
-        # Job entry — collect body until next heading at same/higher level
-        body_lines: list[str] = []
-        j = i + 1
-        while j < len(lines):
-            nh = re.match(r"^(#{2,})", lines[j])
-            if nh and len(nh.group(1)) <= level:
-                break
-            body_lines.append(lines[j])
-            j += 1
-
-        job = _parse_job_entry(heading_text, "\n".join(body_lines), current_section)
-        if job:
-            jobs.append(job)
-        i = j
-
-    return jobs
+# Cached UI wrapper — the pure parser lives in jobsearch.parsing.markdown.
+parse_md_jobs = st.cache_data(show_spinner=False)(_parse_md_jobs)
 
 
 @st.cache_data(show_spinner=False)
@@ -1161,54 +945,10 @@ def _feed_jobs_by_mtime(mtime: float) -> list[dict]:
     return parse_md_jobs(MD_PATH.read_text())
 
 
-# ── Search & filter helpers ────────────────────────────────────────────────
-
-def parse_comp_value(comp_str: str) -> int | None:
-    """
-    Extract the lower-bound salary in dollars from a comp string.
-    Examples: "$150K–$200K" → 150000, "$180K base" → 180000, "" → None.
-    Returns None when the string is empty, unparseable, or explicitly unlisted.
-    """
-    if not comp_str:
-        return None
-    if re.match(r"(?i)^\s*(not\s+listed|n/?a|tbd|\?|market\s+rate|competitive)\s*$", comp_str):
-        return None
-    m = re.search(r"\$?\s*(\d[\d,]*)\s*([kK])?", comp_str)
-    if not m:
-        return None
-    try:
-        raw = int(m.group(1).replace(",", ""))
-        if m.group(2):          # explicit K suffix
-            return raw * 1000
-        if raw < 2000:          # bare small number — treat as thousands
-            return raw * 1000
-        return raw
-    except ValueError:
-        return None
-
-
-_FILTER_KEYS = {"loc", "type", "priority", "skill", "company", "board", "src", "comp"}
 _STOP_WORDS = {
     "engineer", "senior", "staff", "lead", "principal", "associate",
     "and", "of", "at", "for", "a", "an", "the", "in", "with", "applied",
 }
-
-
-def parse_query_chips(query: str) -> tuple[str, list[dict]]:
-    """
-    Split 'python loc:SF priority:8+ skill:pytorch' into free text + chips.
-    Returns (remaining_free_text, [{"key", "value", "label"}, ...]).
-    """
-    tokens = query.strip().split()
-    free_parts, chips = [], []
-    for token in tokens:
-        if ":" in token:
-            key, _, val = token.partition(":")
-            if key.lower() in _FILTER_KEYS and val:
-                chips.append({"key": key.lower(), "value": val, "label": token.lower()})
-                continue
-        free_parts.append(token)
-    return " ".join(free_parts), chips
 
 
 @st.cache_data(show_spinner=False)
