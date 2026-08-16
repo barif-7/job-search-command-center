@@ -29,6 +29,24 @@ def fetch_command() -> list[str]:
     return [sys.executable, str(SCRIPTS_DIR / "run_fetch.py")]
 
 
+def extract_keywords_command(
+    limit: int = 50,
+    offset: int = 0,
+    urls: Optional[list[str]] = None,
+) -> list[str]:
+    cmd = [
+        sys.executable,
+        str(SCRIPTS_DIR / "extract_keywords.py"),
+        "--limit",
+        str(int(limit)),
+        "--offset",
+        str(int(offset)),
+    ]
+    for url in urls or []:
+        cmd.extend(["--url", url])
+    return cmd
+
+
 def auto_apply_command(
     limit: int,
     status: Optional[str] = None,
@@ -61,6 +79,14 @@ def run_command(cmd: list[str]) -> ScriptResult:
 
 def run_fetch() -> ScriptResult:
     return run_command(fetch_command())
+
+
+def run_extract_keywords(
+    limit: int = 50,
+    offset: int = 0,
+    urls: Optional[list[str]] = None,
+) -> ScriptResult:
+    return run_command(extract_keywords_command(limit=limit, offset=offset, urls=urls))
 
 
 def run_auto_apply(

@@ -635,6 +635,7 @@ DISPLAY_COLS = [
     "company", "title", "location", "board", "date_found", "status", "priority",
     "application_status", "blockers", "human_required_reason", "notes", "url",
 ]
+JOBS_PAGE_SIZE = 50
 
 # ── Session state ──────────────────────────────────────────────────────────
 
@@ -648,6 +649,10 @@ if "feed_view" not in st.session_state:
     st.session_state.feed_view = "grid"   # "grid" | "list" | "immersive"
 if "feed_sort" not in st.session_state:
     st.session_state.feed_sort = "priority"  # "priority" | "comp" | "company"
+if "dashboard_page" not in st.session_state:
+    st.session_state.dashboard_page = 1
+if "keyword_extract_signature" not in st.session_state:
+    st.session_state.keyword_extract_signature = ""
 
 # ── Markdown parser helpers ────────────────────────────────────────────────
 
@@ -680,7 +685,7 @@ def _feed_jobs_by_mtime(mtime: float) -> list[dict]:
 @st.cache_data(show_spinner=False)
 def load_keyword_data() -> dict:
     """Cached UI wrapper over the pure keyword loader."""
-    return _load_keyword_data(Path(__file__).parent.parent / "keyword_report.json")
+    return _load_keyword_data(Path(__file__).parent / "keyword_report.json")
 
 
 def _render_cards(jobs: list[dict], view: str) -> None:
@@ -872,12 +877,77 @@ with tab_dashboard:
         if location_search:
             filtered = filtered[filtered["location"].str.contains(location_search, case=False, na=False)]
 
-    st.caption(f"Showing {len(filtered)} of {total} jobs")
+    page_count = max(1, (len(filtered) + JOBS_PAGE_SIZE - 1) // JOBS_PAGE_SIZE)
+    if st.session_state.dashboard_page > page_count:
+        st.session_state.dashboard_page = page_count
+    if st.session_state.dashboard_page < 1:
+        st.session_state.dashboard_page = 1
+
+    page_offset = (st.session_state.dashboard_page - 1) * JOBS_PAGE_SIZE
+    page_df = filtered.iloc[page_offset : page_offset + JOBS_PAGE_SIZE].copy()
+    page_start = page_offset + 1 if len(filtered) else 0
+    page_end = min(page_offset + JOBS_PAGE_SIZE, len(filtered))
+
+    p1, p2, p3, p4, p5 = st.columns([1, 1, 1.2, 2.3, 2.2])
+    with p1:
+        if st.button("Prev", disabled=st.session_state.dashboard_page <= 1, width="stretch"):
+            st.session_state.dashboard_page -= 1
+            st.rerun()
+    with p2:
+        if st.button("Next", disabled=st.session_state.dashboard_page >= page_count, width="stretch"):
+            st.session_state.dashboard_page += 1
+            st.rerun()
+    with p3:
+        selected_page = st.number_input(
+            "Page",
+            min_value=1,
+            max_value=page_count,
+            value=st.session_state.dashboard_page,
+            step=1,
+        )
+        if int(selected_page) != st.session_state.dashboard_page:
+            st.session_state.dashboard_page = int(selected_page)
+            st.rerun()
+    with p4:
+        st.caption(
+            f"Showing {page_start}-{page_end} of {len(filtered)} filtered jobs "
+            f"({total} total) · offset {page_offset} · limit {JOBS_PAGE_SIZE}"
+        )
+    with p5:
+        page_urls = page_df["url"].dropna().astype(str).tolist() if not page_df.empty else []
+        extract_enabled = st.toggle(
+            "Extract keywords for visible page",
+            disabled=not page_urls,
+            key="extract_keywords_visible_page",
+        )
+
+    if not extract_enabled:
+        st.session_state.keyword_extract_signature = ""
+    elif page_urls:
+        extract_signature = f"{page_offset}:{JOBS_PAGE_SIZE}:" + "|".join(page_urls)
+        if extract_signature != st.session_state.keyword_extract_signature:
+            with st.spinner("Extracting keywords for the visible 50-job page..."):
+                result = pipeline_service.run_extract_keywords(
+                    limit=JOBS_PAGE_SIZE,
+                    offset=page_offset,
+                    urls=page_urls,
+                )
+            st.session_state.keyword_extract_signature = extract_signature
+            load_keyword_data.clear()
+            if result.returncode == 0:
+                st.success("Keyword extraction complete for the visible page.")
+                if result.stdout:
+                    with st.expander("Keyword extraction output"):
+                        st.code(result.stdout)
+            else:
+                st.error("Keyword extraction failed.")
+                with st.expander("Keyword extraction error"):
+                    st.code(result.stderr or result.stdout)
 
     if filtered.empty:
         st.info("No jobs match the current filters. Try fetching new jobs above.")
     else:
-        display_df = filtered[DISPLAY_COLS].copy()
+        display_df = page_df[DISPLAY_COLS].copy()
         display_df.insert(
             0,
             "logo",
@@ -956,7 +1026,7 @@ with tab_feed:
         search_col, clear_col = st.columns([8, 1])
         with search_col:
             raw_query = st.text_input(
-                "",
+                "Feed search",
                 placeholder="🔍  loc:SF  type:ai  priority:8+  comp:150k+  skill:swift  company:anthropic  src:new …",
                 key="feed_search_bar",
                 label_visibility="collapsed",
