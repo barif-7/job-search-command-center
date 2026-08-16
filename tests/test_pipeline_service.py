@@ -21,6 +21,36 @@ class TestCommandConstruction(unittest.TestCase):
             [sys.executable, str(P.SCRIPTS_DIR / "run_fetch.py")],
         )
 
+    def test_extract_keywords_command(self):
+        self.assertEqual(
+            P.extract_keywords_command(limit=50, offset=100),
+            [
+                sys.executable,
+                str(P.SCRIPTS_DIR / "extract_keywords.py"),
+                "--limit",
+                "50",
+                "--offset",
+                "100",
+            ],
+        )
+
+    def test_extract_keywords_command_with_urls(self):
+        self.assertEqual(
+            P.extract_keywords_command(limit=50, offset=0, urls=["https://a.example", "https://b.example"]),
+            [
+                sys.executable,
+                str(P.SCRIPTS_DIR / "extract_keywords.py"),
+                "--limit",
+                "50",
+                "--offset",
+                "0",
+                "--url",
+                "https://a.example",
+                "--url",
+                "https://b.example",
+            ],
+        )
+
     def test_auto_apply_minimal(self):
         self.assertEqual(
             P.auto_apply_command(limit=3),
