@@ -25,9 +25,14 @@ def parse_md_stats(content: str, md_path: Optional[Path] = None) -> dict:
     curated = re.findall(r"^###\s+(?:\d+\.|AI-[A-Z]+-\d+\.|TS-\d+\.)", content, re.MULTILINE)
     stats["curated"] = len(curated)
 
-    # Count newly fetched entries
+    # Count newly fetched entries — either curated "### NEW-nn." headings or
+    # the flat bullets the dashboard's markdown export produces.
     new_entries = re.findall(r"^###\s+NEW-\d+\.", content, re.MULTILINE)
-    stats["new_fetched"] = len(new_entries)
+    exported_bullets = re.findall(
+        r"^-\s+(?:\*\*)?\[[^\]]+\](?:\*\*)?\s+.+?\s+(?:—|-)\s+.*?\s+\([^)]*\)\s*$",
+        content, re.MULTILINE,
+    )
+    stats["new_fetched"] = len(new_entries) + len(exported_bullets)
 
     stats["total"] = stats["curated"] + stats["new_fetched"]
 
@@ -49,6 +54,19 @@ def parse_md_stats(content: str, md_path: Optional[Path] = None) -> dict:
             if key not in seen:
                 seen[key] = int(count)
         stats["by_location"] = seen
+    elif exported_bullets:
+        # No summary table in an export — tally cities off the bullet locations.
+        tally: dict = {}
+        for bullet in exported_bullets:
+            location = bullet.rsplit("(", 1)[0]
+            for city in ("San Francisco", "New York", "Seattle", "Toronto",
+                         "Vancouver", "Remote"):
+                if re.search(re.escape(city), location, re.IGNORECASE):
+                    tally[city] = tally.get(city, 0) + 1
+        if tally:
+            stats["by_location"] = dict(
+                sorted(tally.items(), key=lambda kv: kv[1], reverse=True)
+            )
 
     # Last modified
     mtime = md_path.stat().st_mtime if (md_path and md_path.exists()) else None
