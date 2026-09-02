@@ -3,8 +3,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from config import LOCATION_KEYWORDS, ROLE_KEYWORDS
-from jobsearch.boards import BoardFetchResult
+from jobsearch.boards import BoardFetchResult, description_text
+from jobsearch.boards import location_wanted as _location_wanted
+from jobsearch.boards import matches_role as _matches_role
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,10 @@ async def _fetch_one(
 ) -> List[Dict[str, Any]] | None:
     async with sem:
         try:
-            r = await client.get(f"{api_base}/{token}/jobs")
+            # content=true returns the posting body; without it every
+            # description comes back empty and keyword extraction sees
+            # nothing but the title. Same request count either way.
+            r = await client.get(f"{api_base}/{token}/jobs", params={"content": "true"})
             if r.status_code != 200:
                 logger.warning("[greenhouse] ✗ %s (%s) — HTTP %s", name, token, r.status_code)
                 return None
@@ -56,7 +60,7 @@ async def _fetch_one(
                     "location":   loc,
                     "url":        j.get("absolute_url", ""),
                     "board":      "greenhouse",
-                    "description": "",
+                    "description": description_text(j.get("content", "")),
                     "date_found": datetime.now(timezone.utc),
                 })
             logger.info("[greenhouse] ✓ %s: %d match(es) of %d", name, len(results), len(jobs))
@@ -66,14 +70,3 @@ async def _fetch_one(
             return None
         finally:
             await asyncio.sleep(COURTESY_DELAY)
-
-
-def _matches_role(title: str) -> bool:
-    t = title.lower()
-    return any(kw in t for kw in ROLE_KEYWORDS)
-
-
-def _location_wanted(loc: str) -> bool:
-    if not LOCATION_KEYWORDS:
-        return True
-    return any(kw in loc.lower() for kw in LOCATION_KEYWORDS)
