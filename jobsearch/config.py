@@ -4,6 +4,7 @@
 from config import (
     LOCATION_KEYWORDS,
     ROLE_KEYWORDS,
+    SEARCH_PRESETS,
     REQUEST_TIMEOUT,
     DEFAULT_BOARD_CONFIG,
     JOB_STATUSES,
@@ -14,3 +15,4 @@ from config import (
 
 # Alias for backwards compatibility
 DEFAULT_LOCATIONS = LOCATION_KEYWORDS
+

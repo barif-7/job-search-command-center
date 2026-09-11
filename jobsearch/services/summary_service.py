@@ -13,9 +13,15 @@ from jobsearch.settings import get_settings
 SUMMARY_MODEL = "claude-sonnet-4-6"
 
 SUMMARY_PROMPT = """\
-You are analyzing a job search document for Basil Arif, an iOS + AI Software Engineer \
-(3 years at Slack, shipped features to 30M+ DAU, iOS + SwiftUI + Swift expert, Slack AI \
-service architecture, voice/audio side projects including PikaProjiOS).
+You are analyzing a job search document for Basil Arif, an Applied AI / systems engineer. \
+Background: 3 years at Slack (shipped features to 30M+ DAU), strong iOS/SwiftUI, plus deep recent \
+work on private AI infrastructure and productized LLM systems:
+- Heterogeneous local AI cluster (Tailscale mesh, M4 Mac Mini + RTX 4090, Ollama, token budgets)
+- HistoryKit: self-hosted retrieval with vector search, sqlite-vec, recall@k evaluation harness
+- CaptionLocalizer: multilingual ad-pack / caption / lyric localization service with agent tools
+- dev-music-service: real-time lyrics translation and bilingual music product features
+Primary target roles: AI Platform Engineer, MLOps / AI Infrastructure, RAG / Retrieval Engineer, \
+Agentic Systems Engineer, Applied AI Engineer.
 
 The document contains: hand-curated job listings with fit analyses and priority ratings \
 (1–10), a master priority table, GitHub project context, and a bulk "New Findings" section \
@@ -80,3 +86,4 @@ def stream_ai_summary(content: str, api_key: Optional[str] = None) -> Iterator[s
                 yield text
     except Exception as e:
         yield f"\n\n❌ API error: {e}"
+

@@ -1,0 +1,49 @@
+{
+  "full_name": "Basil Arif",
+  "first_name": "Basil",
+  "last_name": "Arif",
+  "email": "",
+  "phone": "",
+  "linkedin_url": "",
+  "github_url": "https://github.com/barif-7",
+  "portfolio_url": "",
+  "website_url": "",
+  "location_city": "Milton",
+  "location_region": "ON",
+  "location_country": "Canada",
+  "current_company": "",
+  "additional_information": "Applied AI / systems engineer. Built a heterogeneous private AI cluster (Tailscale, M4 Mac Mini, RTX 4090, Ollama), HistoryKit retrieval with vector search + reproducible eval harness, CaptionLocalizer multilingual ad and lyric packs with agent-callable tools, and real-time lyrics translation in dev-music-service. Seeking AI Platform, MLOps, RAG, Agentic, or Applied AI roles.",
+  "education_summary": "",
+  "profile_signals": [
+    "ai platform",
+    "llm",
+    "mlops",
+    "rag",
+    "retrieval",
+    "vector",
+    "agentic",
+    "orchestration",
+    "inference",
+    "ollama",
+    "fastapi",
+    "distributed",
+    "gpu",
+    "speech",
+    "transcription",
+    "localization"
+  ],
+  "target_presets": [
+    "ai_platform",
+    "rag_retrieval",
+    "agentic",
+    "applied_ai",
+    "speech_multimodal"
+  ],
+  "checkbox_answers": {
+    "I agree to the privacy policy": true
+  },
+  "radio_answers": {
+    "Are you legally authorized to work in Canada?": "Yes"
+  }
+}
+

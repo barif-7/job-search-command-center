@@ -11,6 +11,7 @@ from jobsearch.ranking.clustering import (
 )
 from jobsearch.ranking.filters import apply_filters
 from jobsearch.ranking.keywords import load_keyword_data
+from jobsearch.ranking.fit import rank_jobs_by_fit, score_job_fit
 
 __all__ = [
     "STOP_WORDS",
@@ -19,4 +20,7 @@ __all__ = [
     "title_tokens",
     "apply_filters",
     "load_keyword_data",
+    "score_job_fit",
+    "rank_jobs_by_fit",
 ]
+

@@ -24,8 +24,10 @@ REQUEST_TIMEOUT = 10
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 
 # ── Role keywords (case-insensitive substring match on job title) ───────────
+# Expanded for AI Platform / MLOps / RAG / Agentic / Applied AI search (2026).
 
 ROLE_KEYWORDS = [
+    # iOS / mobile (existing)
     "ios engineer",
     "ios developer",
     "ios software engineer",
@@ -34,6 +36,7 @@ ROLE_KEYWORDS = [
     "software engineer, ios",
     "software engineer ios",
     "swift engineer",
+    # Applied / product AI
     "ai engineer",
     "applied ai",
     "ai product engineer",
@@ -42,7 +45,105 @@ ROLE_KEYWORDS = [
     "product engineer",
     "product growth engineer",
     "forward deployed engineer",
+    # AI platform / infrastructure (highest ROI for current work)
+    "ai platform engineer",
+    "llm platform",
+    "ai infrastructure",
+    "ml infrastructure",
+    "ml infra",
+    "mlops",
+    "ml ops",
+    "ai systems engineer",
+    "llm ops",
+    "inference engineer",
+    "model serving",
+    # Retrieval / knowledge
+    "rag engineer",
+    "retrieval engineer",
+    "knowledge retrieval",
+    "search engineer",
+    "vector search",
+    # Agents / orchestration
+    "agentic",
+    "agent orchestration",
+    "ai agent",
+    "agent engineer",
+    "tool use",
+    # Speech / multimodal (CaptionLocalizer overlap)
+    "speech engineer",
+    "speech ai",
+    "multimodal",
+    "asr",
+    "tts",
 ]
+
+# ── Named search presets (UI / scripting convenience) ───────────────────────
+# Use these as free-text or chip seeds when filtering for AI-platform roles.
+
+SEARCH_PRESETS = {
+    "ai_platform": {
+        "label": "AI Platform / MLOps",
+        "title_keywords": [
+            "ai platform",
+            "llm platform",
+            "ai infrastructure",
+            "ml infrastructure",
+            "mlops",
+            "ml ops",
+            "ai systems",
+            "inference",
+            "model serving",
+        ],
+        "description": "Private/edge inference, GPU orchestration, model gateways, serving reliability",
+    },
+    "rag_retrieval": {
+        "label": "RAG / Retrieval",
+        "title_keywords": [
+            "rag",
+            "retrieval",
+            "knowledge",
+            "vector search",
+            "search engineer",
+            "embeddings",
+        ],
+        "description": "Vector + hybrid search, evaluation harnesses, embedding pipelines",
+    },
+    "agentic": {
+        "label": "Agentic / Agent Orchestration",
+        "title_keywords": [
+            "agentic",
+            "agent orchestration",
+            "ai agent",
+            "agent engineer",
+            "tool use",
+            "multi-agent",
+        ],
+        "description": "Tool-calling agents, MCP-style surfaces, workflow orchestration",
+    },
+    "applied_ai": {
+        "label": "Applied AI / Generative",
+        "title_keywords": [
+            "applied ai",
+            "generative ai",
+            "llm engineer",
+            "ai engineer",
+            "genai",
+        ],
+        "description": "Shipping LLM features, localization, speech, product-facing AI",
+    },
+    "speech_multimodal": {
+        "label": "Speech / Multimodal",
+        "title_keywords": [
+            "speech",
+            "asr",
+            "tts",
+            "multimodal",
+            "voice ai",
+            "audio ai",
+        ],
+        "description": "STT/TTS, timed captions, lyric/localization pipelines",
+    },
+}
 
 # ── Location keywords — only keep postings that mention at least one ────────
 
@@ -109,3 +210,4 @@ APPLICATION_STATUSES = [
     "BLOCKED",
     "SKIPPED",
 ]
+
