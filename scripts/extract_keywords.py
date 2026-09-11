@@ -20,13 +20,31 @@ from jobsearch.store import JobStore
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO_ROOT / "keyword_report.json"
 
+# Languages that commonly appear beside Go in a stack list, used to tell the
+# language from the English verb.
+_LANG_NEIGHBOURS = (
+    r"python|java|rust|c\+\+|typescript|javascript|scala|kotlin|ruby|node|elixir|swift"
+)
+
 KEYWORD_PATTERNS: dict[str, dict[str, list[str]]] = {
     "languages": {
         "python": [r"\bpython\b"],
         "swift": [r"\bswift\b"],
-        "typescript": [r"\btypescript\b", r"\bts\b"],
-        "javascript": [r"\bjavascript\b", r"\bjs\b"],
-        "go": [r"\bgolang\b", r"\bgo\b"],
+        # Bare "TS" collides with "TS/SCI" security clearances; every real
+        # mention in the corpus also spells out TypeScript.
+        "typescript": [r"\btypescript\b"],
+        # A dot is a word boundary, so a bare \bjs\b matches the "js" inside
+        # "Node.js" and "Next.js" — which are their own keywords.
+        "javascript": [r"\bjavascript\b", r"(?<![.\w])js\b"],
+        # "go" as an English verb ("go deep", "go-to-market") outnumbered the
+        # language 5:1 once real descriptions arrived, so require a signal.
+        "go": [
+            r"\bgolang\b",
+            rf"\bgo\b\s*[/,]\s*(?:{_LANG_NEIGHBOURS})",
+            rf"(?:{_LANG_NEIGHBOURS})\s*[/,]\s*go\b",
+            r"\b(?:in|with|using|like|such as)\s+go\b",
+            r"\bgo\s+(?:programming|developer|engineer|services|microservices|routines)\b",
+        ],
         "java": [r"\bjava\b"],
         "kotlin": [r"\bkotlin\b"],
         "rust": [r"\brust\b"],

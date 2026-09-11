@@ -24,6 +24,16 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class Settings:
     database_path: str
@@ -36,6 +46,11 @@ class Settings:
 
     anthropic_api_key: str
     logo_dev_token: str
+
+    summary_provider: str
+    ollama_base_url: str
+    ollama_model: str
+    ollama_num_ctx: int
 
     @property
     def notion_configured(self) -> bool:
@@ -60,6 +75,10 @@ def load_settings() -> Settings:
         enable_notion_sync=_env_bool("ENABLE_NOTION_SYNC", False),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
         logo_dev_token=os.environ.get("LOGO_DEV_TOKEN", ""),
+        summary_provider=os.environ.get("SUMMARY_PROVIDER", "auto").strip().lower(),
+        ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/"),
+        ollama_model=os.environ.get("OLLAMA_MODEL", "qwen3.5:latest"),
+        ollama_num_ctx=_env_int("OLLAMA_NUM_CTX", 32768),
     )
 
 

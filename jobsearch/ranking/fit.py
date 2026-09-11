@@ -57,6 +57,7 @@ def score_job_fit(
     job: dict,
     profile_signals: Optional[list[str]] = None,
     preset_keys: Optional[list[str]] = None,
+    presets: Optional[dict] = None,
 ) -> dict[str, Any]:
     """Return a simple fit score and matched signals for a job dict.
 
@@ -64,13 +65,13 @@ def score_job_fit(
     profile and optional search presets.
     """
     text = _blob(job)
-    signals = [s.lower() for s in (profile_signals or DEFAULT_PROFILE_SIGNALS)]
+    signals = [s.lower() for s in (DEFAULT_PROFILE_SIGNALS if profile_signals is None else profile_signals)]
     matched = [s for s in signals if s in text]
 
     preset_hits: list[str] = []
     if preset_keys:
         for key in preset_keys:
-            preset = SEARCH_PRESETS.get(key)
+            preset = (SEARCH_PRESETS if presets is None else presets).get(key)
             if not preset:
                 continue
             for kw in preset.get("title_keywords", []):
@@ -94,12 +95,13 @@ def rank_jobs_by_fit(
     jobs: list[dict],
     profile_signals: Optional[list[str]] = None,
     preset_keys: Optional[list[str]] = None,
+    presets: Optional[dict] = None,
 ) -> list[dict]:
     """Attach fit_score / matched_signals and sort descending by score."""
     ranked = []
     for job in jobs:
         scored = dict(job)
-        meta = score_job_fit(job, profile_signals=profile_signals, preset_keys=preset_keys)
+        meta = score_job_fit(job, profile_signals=profile_signals, preset_keys=preset_keys, presets=presets)
         scored.update(meta)
         ranked.append(scored)
     ranked.sort(key=lambda j: j.get("fit_score", 0), reverse=True)

@@ -25,6 +25,8 @@ sys.path.insert(0, str(_HERE.parent))  # for careerBoards
 
 from config import APPLICATION_STATUSES, JOB_STATUSES
 from jobsearch.apply.profile import profile_readiness
+from jobsearch.ranking.preferences import apply_preferences
+from jobsearch.ui.search_preferences import render_search_preferences
 from jobsearch.services import pipeline_service
 from jobsearch.services.logo_service import logo_sources as _logo_sources
 from jobsearch.services.logo_service import logo_url as _logo_url
@@ -730,7 +732,12 @@ def _render_cards(jobs: list[dict], view: str) -> None:
 
 # ── AI summary generator ───────────────────────────────────────────────────
 # The UI-agnostic generator lives in jobsearch.services.summary_service.
-from jobsearch.services.summary_service import stream_ai_summary
+from jobsearch.services.summary_service import build_briefing_document, provider_label, stream_ai_summary, summary_available
+
+# Both probe the Ollama socket, and Streamlit re-runs this on every widget
+# interaction — cache briefly so a stopped server doesn't cost 1.5s a click.
+summary_available_cached = st.cache_data(ttl=30, show_spinner=False)(summary_available)
+provider_label_cached = st.cache_data(ttl=30, show_spinner=False)(provider_label)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1007,6 +1014,7 @@ with tab_dashboard:
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_feed:
+    search_preferences = render_search_preferences()
 
     if not MD_PATH.exists():
         st.info(f"`{MD_PATH.name}` not found. Run `job-search.py` first.")
@@ -1129,6 +1137,10 @@ with tab_feed:
             return (type_order.get(j["type"], 1), -(j["priority"] or 0))
 
         feed = sorted(feed, key=_sort_fn)
+        if search_preferences:
+            feed = apply_preferences(feed, search_preferences)
+            if search_preferences["sort_by_fit"]:
+                st.caption("Sorted by profile fit. Turn this off in Search preferences to use the standard sort.")
 
         # ── Cluster (group mode) ──────────────────────────────────────────
 
@@ -1389,39 +1401,49 @@ with tab_summary:
             columns=["Location", "Roles"],
         ).sort_values("Roles", ascending=False)
 
-        st.caption("Roles by city (from summary table in document)")
+        st.caption("Roles by city (from the source document)")
         st.bar_chart(loc_df.set_index("Location"), horizontal=True, height=200)
 
     st.divider()
 
     # ── Generate button ───────────────────────────────────────────────────
 
-    has_key = bool(_SETTINGS.anthropic_api_key)
+    # Anthropic API or a local Ollama server — whichever the settings resolve to.
+    has_backend = summary_available_cached()
 
     col_btn, col_note = st.columns([1, 4])
     with col_btn:
         generate = st.button(
             "Generate AI Summary",
             type="primary",
-            disabled=not has_key,
+            disabled=not has_backend,
         )
     with col_note:
-        if not has_key:
+        if not has_backend:
             st.warning(
-                "Set `ANTHROPIC_API_KEY` in your environment to enable AI summaries.\n"
-                "```\nexport ANTHROPIC_API_KEY=sk-ant-...\n```"
+                "No summary backend available. Either set `ANTHROPIC_API_KEY`:\n"
+                "```\nexport ANTHROPIC_API_KEY=sk-ant-...\n```\n"
+                f"or start a local Ollama server at `{_SETTINGS.ollama_base_url}` "
+                f"with `ollama pull {_SETTINGS.ollama_model}`."
             )
         elif st.session_state.ai_summary:
-            st.caption("Summary cached — click to regenerate with latest document.")
+            st.caption(f"{provider_label_cached()} · summary cached — click to regenerate with latest document.")
+        else:
+            st.caption(f"{provider_label_cached()}")
 
     # ── Stream or display summary ─────────────────────────────────────────
 
     if generate:
         st.session_state.ai_summary = ""
         summary_placeholder = st.empty()
-        with st.spinner("Analyzing your job search…"):
+        # The full export outgrew the local model's context window, so the
+        # briefing runs on the freshest un-triaged roles as a compact digest.
+        briefing_doc, included, untriaged_total = build_briefing_document(
+            load_jobs(_db_mtime()).to_dict("records")
+        )
+        with st.spinner(f"Analyzing {included} of {untriaged_total} un-triaged roles…"):
             collected = ""
-            for chunk in stream_ai_summary(md_content):
+            for chunk in stream_ai_summary(briefing_doc):
                 collected += chunk
                 summary_placeholder.markdown(collected + "▌")
             st.session_state.ai_summary = collected

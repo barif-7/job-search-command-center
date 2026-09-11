@@ -32,6 +32,42 @@ class TestExtractKeywords(unittest.TestCase):
         self.assertNotIn("java", kw["languages"])
         self.assertEqual(kw["frameworks"], ["react"])
 
+    def test_english_verb_go_is_not_the_language(self):
+        """Real descriptions are full of "go deep" / "go-to-market"."""
+        for prose in (
+            "You'll go deep with priority accounts as a hands-on builder.",
+            "Partner across go-to-market, product, and research.",
+            "Know what it takes to go from idea to product-market fit.",
+        ):
+            job = Job(title="Solutions Architect", description=prose)
+            self.assertNotIn("go", ek.extract_keywords(job).get("languages", []), prose)
+
+    def test_go_the_language_still_matches(self):
+        for prose in (
+            "Backend services written in Golang.",
+            "Our stack is Python, Go, and Rust.",
+            "Experience in Go and distributed systems.",
+            "You will write Go services at scale.",
+        ):
+            job = Job(title="Backend Engineer", description=prose)
+            self.assertIn("go", ek.extract_keywords(job).get("languages", []), prose)
+
+    def test_dotted_framework_names_are_not_javascript(self):
+        """A dot is a word boundary, so a bare \\bjs\\b matches "Node.js"."""
+        job = Job(title="Engineer", description="Our stack: React, Node.js, Next.js, Postgres.")
+        kw = ek.extract_keywords(job)
+        self.assertNotIn("javascript", kw.get("languages", []))
+        self.assertIn("node.js", kw["frameworks"])
+        self.assertIn("next.js", kw["frameworks"])
+
+    def test_security_clearance_is_not_typescript(self):
+        job = Job(title="Forward Deployed Engineer", description="Active TS/SCI clearance required.")
+        self.assertNotIn("typescript", ek.extract_keywords(job).get("languages", []))
+
+    def test_typescript_still_matches_when_spelled_out(self):
+        job = Job(title="Engineer", description="Expert-level in TypeScript (TS).")
+        self.assertIn("typescript", ek.extract_keywords(job)["languages"])
+
     def test_empty_when_no_signal(self):
         job = Job(title="Office Manager", description="Coordinate schedules and vendors.")
         self.assertEqual(ek.extract_keywords(job), {})

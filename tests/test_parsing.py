@@ -131,10 +131,28 @@ class TestParseMdStats(unittest.TestCase):
     def test_counts_and_unknown_modified_without_path(self):
         stats = parse_md_stats(SAMPLE_MD)
         self.assertEqual(stats["curated"], 2)       # "1." and "AI-SF-2."
-        self.assertEqual(stats["new_fetched"], 1)   # "NEW-1."
-        self.assertEqual(stats["total"], 3)
+        # "NEW-1." plus the two exported bullets (Linear, Ramp) — everything
+        # that has not been hand-reviewed.
+        self.assertEqual(stats["new_fetched"], 3)
+        # Totals agree with parse_md_jobs on the same document.
+        self.assertEqual(stats["total"], 5)
+        self.assertEqual(stats["total"], len(parse_md_jobs(SAMPLE_MD)))
         self.assertEqual(stats["top_priority"], 1)  # one 9/10
         self.assertEqual(stats["last_modified"], "Unknown")
+
+    def test_export_only_document_counts_bullets_and_cities(self):
+        """A pure export has no curated headings and no summary table."""
+        doc = (
+            "# Job Search Results\n\n## New\n\n"
+            "- **[Tabs]** Forward Deployed Engineer — New York City, NY (ashby, 2026-09-02)\n"
+            "  https://jobs.ashbyhq.com/tabs/1\n\n"
+            "- **[Rula]** Sr. Mobile Engineer (Remote) — Remote - United States (ashby, 2026-09-02)\n"
+            "  https://jobs.ashbyhq.com/rula/2\n"
+        )
+        stats = parse_md_stats(doc)
+        self.assertEqual(stats["curated"], 0)
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["by_location"], {"New York": 1, "Remote": 1})
 
 
 if __name__ == "__main__":

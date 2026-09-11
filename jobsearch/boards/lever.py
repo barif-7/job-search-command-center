@@ -3,8 +3,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from config import LOCATION_KEYWORDS, ROLE_KEYWORDS
-from jobsearch.boards import BoardFetchResult
+from jobsearch.boards import BoardFetchResult, description_text
+from jobsearch.boards import location_wanted as _location_wanted
+from jobsearch.boards import matches_role as _matches_role
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ async def _fetch_one(
                     "location":   loc_raw,
                     "url":        p.get("hostedUrl", ""),
                     "board":      "lever",
-                    "description": "",
+                    "description": _description(p),
                     "date_found": datetime.now(timezone.utc),
                 })
             logger.info("[lever] ✓ %s: %d match(es) of %d", name, len(results), len(postings))
@@ -74,12 +75,12 @@ async def _fetch_one(
             await asyncio.sleep(COURTESY_DELAY)
 
 
-def _matches_role(title: str) -> bool:
-    t = title.lower()
-    return any(kw in t for kw in ROLE_KEYWORDS)
-
-
-def _location_wanted(loc: str) -> bool:
-    if not LOCATION_KEYWORDS:
-        return True
-    return any(kw in loc.lower() for kw in LOCATION_KEYWORDS)
+def _description(posting: dict) -> str:
+    """Lever splits a posting across the body, its bullet lists, and a
+    trailing "additional" block. Keyword extraction wants all three."""
+    parts = [posting.get("descriptionPlain") or posting.get("description") or ""]
+    for lst in posting.get("lists") or []:
+        parts.append(lst.get("text") or "")
+        parts.append(lst.get("content") or "")
+    parts.append(posting.get("additionalPlain") or posting.get("additional") or "")
+    return description_text(" ".join(part for part in parts if part))
